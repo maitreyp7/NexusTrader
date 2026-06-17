@@ -729,18 +729,19 @@ function checkInfrastructure(): CheckResult[] {
     results.push(check('K2: kill switch not armed today', true, 'file absent — clear'));
   }
 
-  // K3–K6: signal files fresh (< 26 h on trading days)
-  // Signal freshness — 26h for intraday files (run daily), 96h for weekly/cron files
-  // Intraday signal files run daily — flag if older than 26h
-  const signals: Array<{ name: string; path: string; maxAgeH: number }> = [
-    { name: 'signals.json',              path: `${NEXUS}/signals/signals.json`,              maxAgeH: 26 },
-    { name: 'options_signals.json',      path: `${NEXUS}/signals/options_signals.json`,      maxAgeH: 26 },
-    { name: 'earnings_predictions.json', path: `${NEXUS}/signals/earnings_predictions.json`, maxAgeH: 26 },
-  ];
-  for (const { name, path: p, maxAgeH } of signals) {
-    if (!fs.existsSync(p)) { results.push(check(`K: ${name} exists`, false, `missing: ${p}`)); continue; }
-    const ageH = (Date.now() - fs.statSync(p).mtimeMs) / 3_600_000;
-    results.push(check(`K: ${name} fresh (<${maxAgeH}h)`, ageH < maxAgeH, `${ageH.toFixed(1)}h old`));
+  // K3: signal-bus freshness.
+  // Only files the ORB bot still actually consumes are checked. options_signals.json
+  // and earnings_predictions.json checks were REMOVED 2026-06-17 — their feeder crons
+  // (options-flow / earnings-predictor) are paused and ORB never used them to trade,
+  // so a stale-file failure here was a false alarm. signals.json (market-lens) is also
+  // paused but kept as an INFO-only note since ORB reads it for an optional bias and
+  // fails safe when absent — so it must never hard-fail the audit.
+  const signalsPath = `${NEXUS}/signals/signals.json`;
+  if (fs.existsSync(signalsPath)) {
+    const ageH = (Date.now() - fs.statSync(signalsPath).mtimeMs) / 3_600_000;
+    results.push(check('K: signals.json present (optional bias, fail-safe)', true, `${ageH.toFixed(1)}h old`));
+  } else {
+    results.push(check('K: signals.json present (optional bias, fail-safe)', true, 'absent — ORB falls back to neutral'));
   }
 
   // K7: session logs directory exists and is writable
