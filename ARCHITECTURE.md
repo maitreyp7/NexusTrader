@@ -112,9 +112,14 @@ possible repurposing. They make NO API calls while paused.
 ---
 
 ## KNOWN OPEN ITEMS
-- **config.ts ↔ orbAnalyst.ts drift:** orbAnalyst expects `shortConfidencePremium` + `enabledSymbols`
-  fields not in config.ts → 3 typecheck errors. Bot runs fine via tsx; clean up so typecheck is trustworthy.
 - **ORB barely trades** (~1 trade/14 sessions) — the real priority. See `ROADMAP.md`.
+  Instrumentation added 2026-06-17: a per-session **rejection tally** (volume / range /
+  no_breakout / confidence / brain_skip / correlation) now appears in the daily Discord
+  summary and the session JSON. Use the biggest bucket to decide which gate to tune next.
+
+## RESOLVED
+- ~~config.ts ↔ orbAnalyst.ts drift~~ — confirmed FIXED (tsc exit 0 as of 2026-06-17).
+  `enabledSymbols` lives in config FADE section; `shortConfidencePremium` no longer referenced.
 
 ---
 
