@@ -99,6 +99,34 @@ let openingRanges:      Map<string, OpeningRange>    = new Map();  // ORB + midd
 let middayRanges:       Map<string, OpeningRange>    = new Map();  // locked at 10:30 AM
 let powerRanges:        Map<string, OpeningRange>    = new Map();  // locked at 2:30 PM
 const pendingBuys:      Set<string>                  = new Set();
+
+// ── Rejection tally ──────────────────────────────────────────────────────────
+// Counts WHY candidates were rejected each session, so "0 trades" days are
+// explainable (which gate is blocking?) instead of a mystery. Reset per session,
+// reported in the daily Discord summary + written to the session JSON.
+type RejectCategory =
+  | 'volume'        // breakout happened but volume below the confirmation gate
+  | 'range'         // range too wide / too tight / invalid
+  | 'no_breakout'   // price never broke the range
+  | 'confidence'    // setup scored below the confidence threshold
+  | 'brain_skip'    // brain blocked due to poor symbol history
+  | 'correlation'   // correlation-group cap reached
+  | 'other';
+let rejectionTally: Record<RejectCategory, number> = {
+  volume: 0, range: 0, no_breakout: 0, confidence: 0, brain_skip: 0, correlation: 0, other: 0,
+};
+
+// Categorize a free-text skip reason into one bucket. Order matters — most specific first.
+function categorizeRejection(reason: string): RejectCategory {
+  const r = reason.toLowerCase();
+  if (r.includes('volume too low') || r.includes('volume') && r.includes('low')) return 'volume';
+  if (r.includes('range too wide') || r.includes('range invalid') || r.includes('range too tight')) return 'range';
+  if (r.includes('not inside range') || r.includes('no confirmed close') || r.includes('not broken') ||
+      r.includes('still inside') || r.includes('no reclaim') || r.includes('no vwap') ||
+      r.includes('no failed breakout') || r.includes('no breakout')) return 'no_breakout';
+  return 'other';
+}
+function tallyRejection(cat: RejectCategory): void { rejectionTally[cat]++; }
 const pendingExits:     Set<string>                  = new Set(); // guard: one exit in-flight per symbol
 let isDryRun            = false;
 let currentRegime:      RegimeName = 'unknown';
@@ -325,6 +353,7 @@ async function startPreMarket(): Promise<void> {
   sessionPhase     = 'PRE_MARKET';
   sessionLog       = null;
   preMarketAnalysis = null;
+  rejectionTally   = { volume: 0, range: 0, no_breakout: 0, confidence: 0, brain_skip: 0, correlation: 0, other: 0 };
   orbPositions.clear();
   middayPositions.clear();
   powerPositions.clear();
@@ -776,6 +805,23 @@ async function endSession(): Promise<void> {
 
     const allSymbols = new Set([...orbTradedSymbols, ...middayTradedSymbols, ...powerTradedSymbols]);
 
+    // Rejection breakdown — WHY candidates didn't become trades today. The biggest
+    // bucket tells us which gate to tune. Only show buckets with hits.
+    const totalRejections = Object.values(rejectionTally).reduce((a, b) => a + b, 0);
+    const rejectLabels: Record<RejectCategory, string> = {
+      volume: 'volume gate', range: 'range filter', no_breakout: 'no breakout',
+      confidence: 'low confidence', brain_skip: 'brain skip', correlation: 'correlation cap', other: 'other',
+    };
+    const rejectLine = totalRejections === 0
+      ? ''
+      : '🚧 Rejections — ' + (Object.entries(rejectionTally) as [RejectCategory, number][])
+          .filter(([, n]) => n > 0)
+          .sort((a, b) => b[1] - a[1])
+          .map(([cat, n]) => `${rejectLabels[cat]}: ${n}`)
+          .join('  |  ');
+    // Persist the tally into the session JSON for the dashboard / historical analysis.
+    if (sessionLog) (sessionLog as SessionLog & { rejectionTally?: Record<string, number> }).rejectionTally = { ...rejectionTally };
+
     const dayEmoji    = sessionLog.dailyPnL >= 0 ? '📈' : '📉';
     const winTrades   = closedTrades.filter(t => t.outcome === 'WIN');
     const lossTrades  = closedTrades.filter(t => t.outcome === 'LOSS');
@@ -794,6 +840,7 @@ async function endSession(): Promise<void> {
       ``,
       `⚡ Windows — ORB: ${orbTradesOpenedToday} | Midday: ${middayTradesOpenedToday} | Power: ${powerTradesOpenedToday}`,
       `🎯 Symbols: ${[...allSymbols].join(', ') || 'none'}`,
+      rejectLine,
       metrics ? `📐 ${metrics}` : '',
       noTradeReason,
     ].filter(Boolean).join('\n');
@@ -998,6 +1045,7 @@ async function runExecutionCycle(window: TradingWindow): Promise<void> {
           `[${window}] ${symbol}: skipping — correlation group at cap ` +
           `(${openInGroup}/${RISK.maxPositionsPerCorrelationGroup} open in [${symbolGroup.join(', ')}])`,
         );
+        tallyRejection('correlation');
         continue;
       }
     }
@@ -1020,17 +1068,23 @@ async function runExecutionCycle(window: TradingWindow): Promise<void> {
       log.info(`[${window}] ${symbol}: phase=${cycle.phase} score=${cycle.finalScore.toFixed(3)} orb=${cycle.orbScore.toFixed(3)}`);
     }
 
-    if (!cycle.shouldEnter) continue;
+    if (!cycle.shouldEnter) {
+      // Only tally a real rejection, not the normal "still building / waiting" states.
+      if (cycle.phase === 'SKIPPED') tallyRejection(categorizeRejection(cycle.narrative ?? ''));
+      continue;
+    }
 
     const brainIntel = getPreTradeIntelligence(symbol, currentRegime, preMarketAnalysis?.marketLensBias);
     if (brainIntel.shouldSkip) {
       log.warn(`[Brain] ${symbol}: skipped — poor historical performance`);
+      tallyRejection('brain_skip');
       continue;
     }
 
     const adjustedThreshold = RISK.minConfidenceToTrade + brainIntel.confidenceAdj;
     if (cycle.finalScore < adjustedThreshold) {
       log.info(`[Brain] ${symbol}: score ${cycle.finalScore.toFixed(3)} < threshold ${adjustedThreshold.toFixed(3)}`);
+      tallyRejection('confidence');
       continue;
     }
 
@@ -1061,6 +1115,7 @@ async function runExecutionCycle(window: TradingWindow): Promise<void> {
           `[${window}] ${symbol}: entry skipped — correlation group at cap ` +
           `(${openOrPending}/${RISK.maxPositionsPerCorrelationGroup} in [${symbolGroup.join(', ')}])`,
         );
+        tallyRejection('correlation');
         continue;
       }
     }
