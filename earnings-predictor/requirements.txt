@@ -1,0 +1,4 @@
+yfinance
+pytrends
+requests
+python-dotenv

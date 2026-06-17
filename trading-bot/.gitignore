@@ -1,0 +1,14 @@
+# Never commit these — they contain your secret API keys
+.env
+
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Logs (optional — remove this line if you want to commit logs)
+logs/
+
+# Mac system files
+.DS_Store

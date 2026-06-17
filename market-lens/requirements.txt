@@ -1,0 +1,7 @@
+anthropic
+feedparser
+requests
+python-dotenv
+yfinance
+pytrends
+fredapi

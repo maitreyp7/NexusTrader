@@ -1,0 +1,37 @@
+{
+  "name": "ai-trading-bot",
+  "version": "1.0.0",
+  "description": "Autonomous AI-powered ORB (Opening Range Breakout) trading bot for US equities. Uses a multi-agent signal stack to trade QQQ, SPY, NVDA, and 9 other liquid symbols via Alpaca paper trading.",
+  "main": "index.js",
+  "scripts": {
+    "test": "tsx src/test-connections.ts",
+    "start": "tsx src/index.ts",
+    "dry-run": "tsx src/index.ts --dry-run",
+    "validate": "tsx src/index.ts --validate",
+    "once": "tsx src/index.ts --once",
+    "backtest": "tsx src/scripts/backtest.ts",
+    "agents-test": "tsx src/agents/agents.test.ts",
+    "daemon": "./start.sh",
+    "stop": "./stop.sh",
+    "logs": "tail -f logs/bot.log",
+    "replay": "tsx src/tools/paperReplay.ts",
+    "audit": "tsx src/agents/auditAgent.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "dotenv": "^17.4.1",
+    "google-trends-api": "^4.9.2",
+    "node-cron": "^4.2.1",
+    "ws": "^8.20.0"
+  }
+}

@@ -1,0 +1,38 @@
+# Secrets — never commit these
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node / TypeScript
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+*.js.map
+
+# Logs + data
+logs/
+*.log
+seen_ids.json
+cache_articles.json
+cache_signals.json
+
+# Runtime signal bus — live JSON state, not source. Changes constantly; never commit.
+signals/*.json
+signals/*.bak
+
+# Backups / archives
+.backups/
+*.bak
+
+# Lock file
+.pipeline.lock
+
+# OS
+.DS_Store
