@@ -22,7 +22,7 @@ Quick, low-risk housekeeping so we build clean.
       minute-specific. We need one clean harness that: pulls daily bars (stocks + crypto),
       runs ANY strategy's signals, applies the 0.10% cost honestly, and reports
       PF / Sharpe / max DD / trade count / equity curve. This is the gatekeeper for everything.
-- [ ] **0.3 Confirm Alpaca daily-bar + crypto access** works (which coins, how far back).
+- [x] **0.3 DONE — data availability verified.** Alpaca daily history TOO SHORT (ETFs 2016+, crypto 2021+ = ~1 bull regime, would mirror the ORB mirage). SOLUTION: backtest/validate on **Yahoo Finance** (free, daily, SPY→1993/33yr, most ETFs 20-26yr incl. 2008 GFC; BTC 11.8yr). Trade LIVE on Alpaca. Data source ≠ execution source. (See STRATEGY_SPEC + memory.)
 
 ## PHASE 1 — STRATEGY #1: MULTI-ASSET TREND-FOLLOWING  ← HIGHEST CONVICTION
 The most documented edge in finance + crisis-alpha. Weekly rebalance on liquid ETFs.
