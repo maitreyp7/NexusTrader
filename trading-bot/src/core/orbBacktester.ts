@@ -30,6 +30,13 @@ import type { SessionLog, TradeRecord } from '../agents/journal.js';
 //   npm run backtest -- QQQ --train --months 3
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Realistic trading cost applied to EVERY backtest trade. Without this the
+// backtest is pure-frictionless fantasy. Each round trip (enter + exit) pays
+// slippage on both fills plus commission. 0.10% round-trip is conservative-
+// realistic for these high-volatility names on market/marketable orders.
+// This is the single biggest reason backtests look great and fail live.
+const ROUND_TRIP_COST_PCT = 0.0010; // 0.10% deducted from every trade's pnlPct
+
 export interface OrbBacktestTrade {
   date:          string;
   symbol:        string;
@@ -215,8 +222,12 @@ function simulateDay(
   let partialHit = false;
 
   for (const c of managingCandles) {
+    // WORST-CASE INTRA-CANDLE ORDERING (LONG): if a single candle's range spans
+    // BOTH the stop and the profit level, we cannot know which was hit first from
+    // 1m bars. Always resolve the STOP first — the pessimistic outcome. This kills
+    // the look-ahead bias that inflates backtest results vs live.
     if (!partialHit) {
-      // Phase: OPEN — watching for partial profit at 1×
+      // Phase: OPEN — stop checked BEFORE partial (worst case)
       if (c.low <= stopPrice) {
         exitPrice  = stopPrice;
         exitReason = 'stop_loss';
@@ -224,24 +235,20 @@ function simulateDay(
         break;
       }
       if (c.high >= partialPrice) {
-        // Partial profit hit — 50% sold, stop moved to entry (risk-free)
+        // Partial profit hit — 50% sold, stop trails to entry.
         partialHit = true;
-        stopPrice  = entryPrice;  // Stop to entry — can't lose now
+        stopPrice  = entryPrice;
       }
     } else {
-      // Phase: PARTIAL_PROFIT — trailing to 2× target
+      // Phase: PARTIAL_PROFIT — stop (now at entry) still checked FIRST.
       if (c.low <= stopPrice) {
-        // Stopped out on remaining 50% at entry — partial win overall
-        // P&L = 50% at 1× gain + 50% at 0 (entry) = 0.5 × rangeSize gain
-        exitPrice  = (partialPrice + entryPrice) / 2;  // blended average exit
+        exitPrice  = (partialPrice + entryPrice) / 2;  // 50% at 1×, 50% at entry
         exitReason = 'partial_then_stop';
         exitTime   = formatEtTime(c.openTime);
         break;
       }
       if (c.high >= targetPrice) {
-        // Full target hit on remaining 50%
-        // P&L = 50% at 1× + 50% at 2× = 1.5× range size gain
-        exitPrice  = (partialPrice + targetPrice) / 2;
+        exitPrice  = (partialPrice + targetPrice) / 2; // 50% at 1×, 50% at 2×
         exitReason = 'partial_then_target';
         exitTime   = formatEtTime(c.openTime);
         break;
@@ -260,7 +267,8 @@ function simulateDay(
     }
   }
 
-  const pnlPct  = entryPrice > 0 ? (exitPrice - entryPrice) / entryPrice : 0;
+  const grossPnlPct = entryPrice > 0 ? (exitPrice - entryPrice) / entryPrice : 0;
+  const pnlPct  = grossPnlPct - ROUND_TRIP_COST_PCT;  // deduct realistic trading cost
   const outcome: 'WIN' | 'LOSS' = pnlPct > 0 ? 'WIN' : 'LOSS';
 
   return {
@@ -425,7 +433,8 @@ function simulateShortDay(
   }
 
   // Short P&L: profit when price falls
-  const pnlPct  = entryPrice > 0 ? (entryPrice - exitPrice) / entryPrice : 0;
+  const grossPnlPct = entryPrice > 0 ? (entryPrice - exitPrice) / entryPrice : 0;
+  const pnlPct  = grossPnlPct - ROUND_TRIP_COST_PCT;  // deduct realistic trading cost
   const outcome: 'WIN' | 'LOSS' = pnlPct > 0 ? 'WIN' : 'LOSS';
 
   return {
@@ -571,7 +580,8 @@ function simulateVwapRejectionShortDay(
       : (last?.close ?? entryPrice);
   }
 
-  const pnlPct  = entryPrice > 0 ? (entryPrice - exitPrice) / entryPrice : 0;
+  const grossPnlPct = entryPrice > 0 ? (entryPrice - exitPrice) / entryPrice : 0;
+  const pnlPct  = grossPnlPct - ROUND_TRIP_COST_PCT;  // deduct realistic trading cost
   const outcome: 'WIN' | 'LOSS' = pnlPct > 0 ? 'WIN' : 'LOSS';
 
   return {
@@ -791,9 +801,10 @@ function simulateFadeDay(
     exitTime  = formatEtTime(managingCandles[managingCandles.length - 1].openTime);
   }
 
-  const pnlPct = direction === 'LONG'
+  const grossPnlPct = direction === 'LONG'
     ? (exitPrice - entryPrice) / entryPrice
     : (entryPrice - exitPrice) / entryPrice;
+  const pnlPct = grossPnlPct - ROUND_TRIP_COST_PCT;  // deduct realistic trading cost
   const outcome: 'WIN' | 'LOSS' = pnlPct > 0 ? 'WIN' : 'LOSS';
 
   return {

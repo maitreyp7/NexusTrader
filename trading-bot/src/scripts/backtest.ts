@@ -46,11 +46,11 @@ if (symbols.length === 1) {
   console.log(`  Trades:          ${result.totalTrades}`);
   console.log(`  Win Rate:        ${(result.winRate * 100).toFixed(1)}%`);
   console.log(`  Profit Factor:   ${result.profitFactor.toFixed(2)}`);
-  console.log(`  Expectancy:      ${result.expectancy >= 0 ? '+' : ''}${result.expectancy.toFixed(2)}%`);
+  console.log(`  Expectancy:      ${result.expectancy >= 0 ? '+' : ''}${(result.expectancy * 100).toFixed(3)}% per trade`);
   console.log(`  Sharpe:          ${result.sharpeRatio.toFixed(2)}`);
-  console.log(`  Max Drawdown:    -${result.maxDrawdownPct.toFixed(1)}%`);
-  console.log(`  Avg Win:         +${result.avgWinPct.toFixed(2)}%`);
-  console.log(`  Avg Loss:        -${result.avgLossPct.toFixed(2)}%`);
+  console.log(`  Max Drawdown:    -${(result.maxDrawdownPct * 100).toFixed(2)}%`);
+  console.log(`  Avg Win:         +${(result.avgWinPct * 100).toFixed(2)}%`);
+  console.log(`  Avg Loss:        ${(result.avgLossPct * 100).toFixed(2)}%`);
   console.log(`  Days analyzed:   ${result.daysAnalyzed}`);
   console.log(`  Days traded:     ${result.daysWithBreakout}`);
   console.log('');
@@ -59,7 +59,7 @@ if (symbols.length === 1) {
   const results = summary.results;
 
   console.log('');
-  const header = 'Symbol   Trades  Win%   PF    Expect  Sharpe  MaxDD';
+  const header = 'Symbol   Trades  Win%   PF    Expect/trade  Sharpe  MaxDD';
   console.log(header);
   console.log('─'.repeat(header.length));
 
@@ -69,9 +69,9 @@ if (symbols.length === 1) {
       String(r.totalTrades).padEnd(7),
       `${(r.winRate * 100).toFixed(0)}%`.padEnd(7),
       r.profitFactor.toFixed(2).padEnd(6),
-      `${r.expectancy >= 0 ? '+' : ''}${r.expectancy.toFixed(2)}%`.padEnd(8),
+      `${r.expectancy >= 0 ? '+' : ''}${(r.expectancy * 100).toFixed(3)}%`.padEnd(14),
       r.sharpeRatio.toFixed(2).padEnd(8),
-      `-${r.maxDrawdownPct.toFixed(1)}%`,
+      `-${(r.maxDrawdownPct * 100).toFixed(2)}%`,
     ].join('');
     console.log(line);
   }
