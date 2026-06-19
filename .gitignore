@@ -36,3 +36,6 @@ signals/*.bak
 
 # OS
 .DS_Store
+
+# Backtest data cache (regenerable from Yahoo)
+quant/data_cache/
