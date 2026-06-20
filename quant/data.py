@@ -33,13 +33,27 @@ UNIVERSE = {
     "fx":          ["UUP"],
     "crypto":      ["BTC-USD", "ETH-USD"],
 }
+
+# Wider liquid-crypto set for crypto-specific strategies (Alpaca-tradable spot).
+CRYPTO_UNIVERSE = ["BTC-USD", "ETH-USD", "SOL-USD", "LTC-USD", "BCH-USD",
+                   "LINK-USD", "AVAX-USD", "DOGE-USD"]
 ALL_SYMBOLS = [s for group in UNIVERSE.values() for s in group]
+
+
+# Yahoo ticker aliases for index symbols (^ prefix) we refer to by plain name.
+YAHOO_ALIAS = {
+    "VIX":   "^VIX",
+    "VIX3M": "^VIX3M",
+}
 
 
 def _yahoo_url(symbol: str) -> str:
     # period1=0 → from epoch (Yahoo clamps to the symbol's actual start).
+    ysym = YAHOO_ALIAS.get(symbol, symbol)
+    # URL-encode the ^ for index symbols
+    ysym = ysym.replace("^", "%5E")
     return (
-        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{ysym}"
         f"?period1=0&period2=9999999999&interval=1d"
     )
 
