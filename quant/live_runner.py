@@ -78,6 +78,11 @@ def compute_target_weights() -> pd.Series:
     """Run the brain on fresh data; return today's target weight per symbol."""
     log("Pulling fresh daily bars...")
     panel = build_price_panel(get_universe(ALL, force=True))
+    # Forward-fill each asset's last known price across non-trading days. ETFs don't
+    # trade weekends but crypto does, so recent rows have crypto data + NaN ETF cells.
+    # ffill makes the weekend ETF signal use Friday's close — exactly what a trader
+    # sees. Then drop any leading rows still NaN (asset not born yet stays excluded).
+    panel = panel.ffill()
     w_t = trend.strategy(panel)
     w_c = crypto_trend.strategy(panel)
     w_m = flow.turn_of_month(panel)
@@ -89,8 +94,18 @@ def compute_target_weights() -> pd.Series:
         {"trend": r_t, "crypto": r_c, "tom": r_m},
         allocator.DEFAULT_CAPS,
     ) * allocator.DEFAULT_LEVERAGE
-    comb = comb.clip(upper=1.0)
-    today = comb.iloc[-1]                      # most recent row = today's target
+    # Per-asset hard cap so leverage can't dump the whole book into one name
+    # (vol-targeting + 2x leverage was pushing SPY to ~64%; the validated backtest
+    # was diversified). 25% max per asset keeps it true to the tested portfolio.
+    MAX_PER_ASSET = 0.25
+    comb = comb.clip(upper=MAX_PER_ASSET)
+    # Use the last row that had VALID price data — never a weekend/holiday NaN row.
+    # (Yahoo returns a trailing row for the current calendar day even on weekends,
+    #  with NaN prices; computing signals on that row zeroes everything.)
+    valid_rows = panel.dropna(how="all")       # drop fully-empty rows
+    last_valid_date = valid_rows.index[-1]
+    log(f"Last valid market date: {last_valid_date.date()} (panel ends {panel.index[-1].date()})")
+    today = comb.loc[last_valid_date]          # target as of the last real trading day
     return today[today > 0.001]                # only held names
 
 
