@@ -22,6 +22,13 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+# ── CHOSEN LIVE CONFIG (locked 2026-06-21) ──────────────────────────────────
+# Moderate-aggressive: the recommended sweet spot from the dial sweep.
+# 33yr backtest: CAGR +8.7%/yr, Sharpe 0.87, MaxDD -21.6%, vol 10%.
+# Keeps full risk-adjusted edge; post-2021 OOS Sharpe improves to 0.81.
+DEFAULT_CAPS = {"trend": 0.80, "crypto": 0.35, "tom": 0.30}
+DEFAULT_LEVERAGE = 2.0   # exposure multiplier (applied then clipped to 100%/asset)
+
 
 def _sleeve_vol(returns: pd.Series, window: int = 60, ann: int = 252) -> pd.Series:
     """Trailing annualized vol of a sleeve's return stream (for risk budgeting)."""
