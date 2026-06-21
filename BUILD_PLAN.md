@@ -1,5 +1,75 @@
 # NexusTrader Build Plan — Prioritized, Step by Step
 
+> ## ⚡ CURRENT STATE (updated 2026-06-21)
+> **Phases 0-5 + live paper deployment are DONE.** The validated 3-sleeve quant bot
+> (ETF-trend + crypto-trend + turn-of-month) is LIVE ON PAPER and AUTONOMOUS:
+> - Runs daily at 5:30 PM ET via cron at `/opt/nexustrader/quant-bot/` (isolated).
+> - First 8 ETF orders placed 2026-06-21, filling Monday open. Discord wired up.
+> - Backtest: Sharpe 0.82, ~+7%/yr, MaxDD -23%, holds days-to-weeks, trades near-daily.
+> - Old bots (ORB/swing) disabled; full isolation confirmed.
+>
+> **→ NEXT: let it paper-trade ~2-4 weeks, THEN do PHASE 7 (improvements) below.**
+> Do NOT add real money or new sleeves until live paper results track the backtest.
+
+---
+
+# PHASE 7 — IMPROVE THE LIVE BOT (after ~2-4 weeks of paper trading)
+
+**Prerequisite: confirm the bot works live first.** Watch Discord + dashboard for a few
+weeks. Does live behavior match the backtest (right positions, sensible rebalances,
+no errors)? Only proceed to improvements once the bot is proven stable in live execution.
+Improving an unproven-live bot is premature — prove it, then enhance.
+
+### 7.0 — Paper-trade watch (DO THIS FIRST, ~2-4 weeks)
+- [ ] Confirm Monday fills executed correctly (orphans sold, 8 ETFs bought).
+- [ ] Watch daily Discord summaries — positions sensible? rebalances reasonable?
+- [ ] Compare live equity curve vs backtest expectation (rough tracking, not exact).
+- [ ] Watch for execution bugs: failed orders, weird sizing, crypto symbol issues.
+- [ ] **GO/NO-GO:** if it behaves as designed → proceed to improvements. If buggy → fix first.
+
+### 7.1 — Wire in the VIX regime brain (MOST evidence-backed improvement)
+The hedge fund PM's key insight: "trade the second derivative (volatility regime),
+not price direction." We already BUILT `strategies/regime.py` (VIX/VIX3M term structure
++ vol level) but haven't wired it into the live allocator.
+- [ ] Backtest the bot WITH regime-gating: does scaling exposure down in stress regimes
+      (VIX backwardation / elevated) improve Sharpe or cut drawdown?
+- [ ] If it passes the gatekeeper → wire it into the allocator as a master risk dial.
+- [ ] Expectation: probably won't raise return much, but should reduce the -23% drawdown.
+
+### 7.2 — Add 1-2 more uncorrelated sleeves (the ensemble path — proven way to improve)
+PM + research say 4-5 uncorrelated sleeves is the sweet spot; we have 3 (and two of them,
+ETF-trend & crypto-trend, correlate 0.58 — so we really have ~2 distinct bets). Need MORE
+DIFFERENT edges, especially ones that win when trend LOSES.
+- [ ] Candidates to test through the gatekeeper (keep only passers): residual/relative-
+      strength momentum, low-vol tilt, a credit-spread (HY) risk-on/off macro gate (FRED data),
+      equity/ETF pairs (can short on Alpaca). Prioritize LOW correlation to trend.
+- [ ] Each must clear: WFE≥50%, survives 2x slippage, DSR>0.95, corr<0.3 to existing sleeves.
+
+### 7.3 — Test market-lens-style sentiment AS A CANDIDATE SLEEVE (only if curious)
+The old AI news pipeline (market-lens) was the sole feeder of the LOSING swing bot and was
+NEVER validated. Do NOT bolt it on untested — that's the exact mistake that sank the old bots.
+- [ ] IF tested: treat "Claude says bullish on X" as a signal, backtest whether it actually
+      predicts X's return after costs, out-of-sample. Passes gatekeeper → use it. Fails → drop it.
+- [ ] Lower priority than 7.1/7.2 (sentiment edges are weak/expensive/decay fast).
+
+### 7.4 — Decay monitoring + per-sleeve drawdown rules (the pod model)
+The institutional loop the PM described: monitor live-vs-backtest, cut losers automatically.
+- [ ] Log each sleeve's live performance; compare rolling live Sharpe vs backtest baseline.
+- [ ] Per-sleeve auto drawdown rule (e.g. sleeve down X% → halve its size; Y% → off).
+- [ ] Retire any sleeve whose live edge crosses zero (decay detection).
+
+### 7.5 — Only AFTER paper proves out: real money, small
+- [ ] If live paper tracks backtest over a meaningful window → fund with SMALL real money.
+- [ ] Same config, drawdown rules armed. Scale up only as it proves itself.
+- [ ] Remember: returns are a %, so real money matters more than a "better" bot — an ~7%/yr
+      edge on a bigger account is how the dollars actually grow.
+
+### Improvement priority order
+**7.0 (watch) → 7.1 (regime brain) → 7.2 (more sleeves) → 7.4 (decay/risk rules) → 7.5 (real $).**
+7.3 (sentiment) is optional/low-priority. Each change re-validated through the gatekeeper.
+
+---
+
 **Created:** 2026-06-18. The single ordered to-do list. We execute top to bottom.
 **Goal:** make money via an ENSEMBLE of small, uncorrelated, daily/weekly edges — each
 proven on the honest backtester (PF > 1.2 / Sharpe > 1 after 0.10% costs) BEFORE it gets
@@ -13,7 +83,7 @@ real money or significant build time.
 
 ---
 
-## PHASE 0 — STOP THE BLEEDING / SET THE STAGE  ← DO FIRST
+## PHASE 0 — ✅ DONE (decommission ORB, build honest backtest harness)
 Quick, low-risk housekeeping so we build clean.
 
 - [ ] **0.1 Decommission the live ORB bot** (proven PF 0.83 loser). Stop the systemd service
@@ -24,7 +94,7 @@ Quick, low-risk housekeeping so we build clean.
       PF / Sharpe / max DD / trade count / equity curve. This is the gatekeeper for everything.
 - [x] **0.3 DONE — data availability verified.** Alpaca daily history TOO SHORT (ETFs 2016+, crypto 2021+ = ~1 bull regime, would mirror the ORB mirage). SOLUTION: backtest/validate on **Yahoo Finance** (free, daily, SPY→1993/33yr, most ETFs 20-26yr incl. 2008 GFC; BTC 11.8yr). Trade LIVE on Alpaca. Data source ≠ execution source. (See STRATEGY_SPEC + memory.)
 
-## PHASE 1 — STRATEGY #1: MULTI-ASSET TREND-FOLLOWING  ← HIGHEST CONVICTION
+## PHASE 1 — ✅ DONE (trend-following: PASSED, Sharpe 0.73)
 The most documented edge in finance + crisis-alpha. Weekly rebalance on liquid ETFs.
 
 - [ ] **1.1 Spec the rules:** universe (SPY, QQQ, IWM, TLT, GLD, + a few sectors, BTC, ETH);
@@ -35,14 +105,14 @@ The most documented edge in finance + crisis-alpha. Weekly rebalance on liquid E
       edge must survive parameter changes, not just one magic setting.
 - [ ] **1.4 GO/NO-GO.** If it clears → build the live module (paper first). If not → drop it, next.
 
-## PHASE 2 — THE OVERLAY: VOLATILITY TARGETING
+## PHASE 2 — ✅ DONE (vol-targeting built into sleeves)
 Not standalone — a multiplier that improves Sharpe of whatever we run. Build once, reuse.
 
 - [ ] **2.1 Build a vol-targeting sizing module** (scale position inversely to recent realized vol,
       target ~10-15% annualized). Plug into Strategy #1.
 - [ ] **2.2 Re-backtest #1 with vol-targeting on.** Confirm Sharpe improves.
 
-## PHASE 3 — STRATEGY #2: CRYPTO LONG-ONLY TREND
+## PHASE 3 — ✅ DONE (crypto trend: PASSED, Sharpe 1.03)
 Fits our exact long-only spot constraint; younger/less-efficient market.
 
 - [ ] **3.1 Spec:** BTC/ETH + a few liquid Alpaca coins; time-series trend (price vs 20/50-day MA
@@ -50,14 +120,14 @@ Fits our exact long-only spot constraint; younger/less-efficient market.
 - [ ] **3.2 Backtest honestly** (watch crypto survivorship bias hard). Must clear the bar.
 - [ ] **3.3 GO/NO-GO.** Check it's UNCORRELATED to #1 (that's the whole point of the ensemble).
 
-## PHASE 4 — CHEAP DIVERSIFIERS (only if #1/#3 working)
+## PHASE 4 — ✅ PARTIAL (turn-of-month kept; FOMC/defensive killed)
 Low individual edge, near-zero cost, good ensemble fillers.
 
 - [ ] **4.1 Calendar effects** (turn-of-month, FOMC drift) on SPY. Backtest.
 - [ ] **4.2 Low-volatility tilt** (long lowest-vol names, monthly). Backtest.
 - [ ] Add only the ones that clear the bar AND are uncorrelated to existing sleeves.
 
-## PHASE 5 — ASSEMBLE THE PORTFOLIO
+## PHASE 5 — ✅ DONE (allocator brain: combined Sharpe 0.82-0.87, LIVE on paper)
 The actual edge: combining uncorrelated sleeves.
 
 - [ ] **5.1 Build a portfolio layer** that allocates capital across the proven sleeves,
