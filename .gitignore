@@ -39,3 +39,7 @@ signals/*.bak
 
 # Backtest data cache (regenerable from Yahoo)
 quant/data_cache/
+
+# live runner local env (paper keys)
+quant/.env
+quant/live_logs/
