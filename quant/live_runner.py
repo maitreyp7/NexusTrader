@@ -49,6 +49,24 @@ def log(msg: str):
         f.write(line + "\n")
 
 
+def discord(env, msg: str):
+    """Post a message to Discord. Never throws — a notify failure won't break trading."""
+    url = env.get("DISCORD_WEBHOOK_URL", "").strip()
+    if not url:
+        return
+    try:
+        body = json.dumps({"content": msg[:1900]}).encode()
+        # Discord rejects requests with Python's default urllib User-Agent (403).
+        # A browser-like UA (what curl effectively gets away with) is required.
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type": "application/json",
+            "User-Agent": "NexusQuantBot/1.0 (+https://nexustrader.local)",
+        })
+        urllib.request.urlopen(req, timeout=15)
+    except Exception as e:
+        log(f"[discord] notify failed: {str(e)[:80]}")
+
+
 # ── Alpaca REST (paper) ──────────────────────────────────────────────────────
 def _env():
     e = {}
@@ -149,8 +167,12 @@ def run(live: bool = False):
 
     # CRITICAL isolation note: we only ever generate orders for OUR symbols.
     # Anything else in the account is never touched.
+    tgt_str = ", ".join(f"{s}={w*100:.0f}%" for s, w in targets.items())
+
     if not orders:
         log("No orders needed — portfolio already matches target.")
+        discord(env, f"🤖 **Quant brain** ({mode}) — no trades today. "
+                     f"Holding: {tgt_str or 'cash'} | Equity ${equity:,.0f}")
         return
 
     log(f"Planned orders ({len(orders)}):")
@@ -159,16 +181,24 @@ def run(live: bool = False):
 
     if not live:
         log("DRY-RUN — no orders placed. Re-run with --live to execute.")
+        order_lines = "\n".join(f"  {sd.upper()} {a} ${n:,.0f}" for a, sd, n in orders)
+        discord(env, f"🧪 **Quant brain DRY-RUN** — would place {len(orders)} orders:\n"
+                     f"{order_lines}\nTarget: {tgt_str} | Equity ${equity:,.0f}")
         return
 
+    placed = []
     for asym, side, notional in orders:
         try:
             body = {"symbol": asym, "side": side, "type": "market",
                     "time_in_force": "day", "notional": str(notional)}
             res = _alpaca(env, "POST", "/v2/orders", body)
             log(f"   placed: {side} {asym} ${notional} -> id {res.get('id','?')[:8]}")
+            placed.append(f"  {side.upper()} {asym} ${notional:,.0f}")
         except Exception as e:
             log(f"   ORDER FAILED {side} {asym}: {str(e)[:120]}")
+            placed.append(f"  ❌ {side.upper()} {asym} FAILED")
+    discord(env, f"💸 **Quant brain LIVE (paper)** — placed {len(placed)} orders:\n"
+                 + "\n".join(placed) + f"\nTarget: {tgt_str} | Equity ${equity:,.0f}")
     log("=== run complete ===")
 
 
