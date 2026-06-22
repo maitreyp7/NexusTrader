@@ -33,14 +33,25 @@ CAGR cost only -0.14%/yr. Bot goes fully to cash in risk-off (VIX/VIX3M ratio �
 Regime is RISK-ON 78% of days historically; correctly signaled RISK-OFF during 2008/2009.
 VIX/VIX3M fetched fresh daily before each run. Discord shows regime status on every update.
 
-### 7.2 — Add 1-2 more uncorrelated sleeves (the ensemble path — proven way to improve)
+### 7.2 — Add more uncorrelated sleeves (IN PROGRESS)
 PM + research say 4-5 uncorrelated sleeves is the sweet spot; we have 3 (and two of them,
 ETF-trend & crypto-trend, correlate 0.58 — so we really have ~2 distinct bets). Need MORE
 DIFFERENT edges, especially ones that win when trend LOSES.
-- [ ] Candidates to test through the gatekeeper (keep only passers): residual/relative-
-      strength momentum, low-vol tilt, a credit-spread (HY) risk-on/off macro gate (FRED data),
-      equity/ETF pairs (can short on Alpaca). Prioritize LOW correlation to trend.
-- [ ] Each must clear: WFE≥50%, survives 2x slippage, DSR>0.95, corr<0.3 to existing sleeves.
+
+**Round 1 (2026-06-22) — ETF-universe hunt: DRY HOLE (correct result).** Built `hunt_sleeves.py`
+(tests standalone edge + correlation + portfolio-impact in one pass). Tested bond_trend,
+commodity_trend, gold_trend, bondgold_trend, xsec_momentum, flight_to_safety, defensive_rotation,
+risk_parity_lite. FINDING: nothing in our 12-ticker ETF/crypto universe is an *accretive*
+diversifier. The only candidate that improved Sharpe (bondgold_trend) did so purely by cutting
+vol — it costs ~1%/yr CAGR at every cap size, no free lunch. NOT added (user goal = make money,
+not smooth). **Lesson: a real return-adding 4th sleeve needs a DIFFERENT return source than
+these 12 tickers** — single-name equities, carry, or sector granularity.
+
+**Round 2 (next) — single-name mean-reversion.** Pull ~200 liquid stocks (Yahoo, free) and test
+short-term reversion (oversold-in-uptrend, hold 2-10 days). Reversion is mechanically uncorrelated
+to trend; fits the ≤2-week hold goal. Killed on ETFs but may live on individual names.
+- [ ] Each must clear: positive across eras, survives 2x slippage, corr<0.35 to existing sleeves,
+      AND must IMPROVE the portfolio (raise CAGR or Sharpe meaningfully), not just smooth it.
 
 ### 7.3 — Test market-lens-style sentiment AS A CANDIDATE SLEEVE (only if curious)
 The old AI news pipeline (market-lens) was the sole feeder of the LOSING swing bot and was
