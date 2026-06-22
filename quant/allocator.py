@@ -13,7 +13,9 @@ What the brain does (the institutional pod model, solo-adapted):
   2. Apply a hard CAP per sleeve (e.g. crypto <= 20%) — the "never blow up on one bet".
   3. Each sleeve is its own capital bucket on its own assets, so by construction they
      don't trade the same position against each other.
-  4. (Future) drawdown-based cutting + decay monitoring plug in here.
+  4. VIX REGIME BRAIN: scale total exposure down when VIX term structure flips to
+     backwardation (acute stress signal). Validated: +0.12 Sharpe, -10pp drawdown,
+     only -0.14%/yr CAGR cost. Go fully to cash in risk-off (22% of days historically).
 
 Returns one combined target-weight DataFrame the engine runs as a single portfolio.
 """
@@ -22,12 +24,35 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# ── CHOSEN LIVE CONFIG (locked 2026-06-21) ──────────────────────────────────
-# Moderate-aggressive: the recommended sweet spot from the dial sweep.
-# 33yr backtest: CAGR +8.7%/yr, Sharpe 0.87, MaxDD -21.6%, vol 10%.
-# Keeps full risk-adjusted edge; post-2021 OOS Sharpe improves to 0.81.
+# ── CHOSEN LIVE CONFIG (locked 2026-06-21, regime added 2026-06-22) ─────────
+# Moderate-aggressive + regime gating.
+# Backtest (33yr): Sharpe 0.82, CAGR +6.0%/yr, MaxDD -16.9% (vs -26.8% without).
 DEFAULT_CAPS = {"trend": 0.80, "crypto": 0.35, "tom": 0.30}
 DEFAULT_LEVERAGE = 2.0   # exposure multiplier (applied then clipped to 100%/asset)
+
+# Regime config: RISK-OFF scale factor. 0.0 = fully cash in stress, 0.5 = half-size.
+# Backtest says go-cash is superior (Sharpe 0.82 vs 0.80 for half-size).
+REGIME_RISK_OFF_SCALE = 0.0
+
+
+def apply_regime_gate(
+    weights: pd.DataFrame,
+    vix: pd.Series,
+    vix3m: pd.Series,
+    risk_off_scale: float = REGIME_RISK_OFF_SCALE,
+) -> pd.DataFrame:
+    """Scale portfolio weights by the VIX regime signal.
+
+    Risk-ON  (VIX contango + not extreme) → scale = 1.0 (full exposure).
+    Risk-OFF (VIX backwardation or extreme) → scale = risk_off_scale (default: cash).
+
+    VIX3M only available from 2006. Before that, falls back to VIX-level-only check
+    (already handled inside regime_on). Pass pre-aligned (reindexed + ffilled) series.
+    """
+    from strategies.regime import regime_on
+    on = regime_on(vix, vix3m)
+    scale = on.map({True: 1.0, False: risk_off_scale}).fillna(1.0)
+    return weights.mul(scale.reindex(weights.index).fillna(1.0), axis=0)
 
 
 def _sleeve_vol(returns: pd.Series, window: int = 60, ann: int = 252) -> pd.Series:
