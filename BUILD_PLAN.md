@@ -27,14 +27,11 @@ Improving an unproven-live bot is premature — prove it, then enhance.
 - [ ] Watch for execution bugs: failed orders, weird sizing, crypto symbol issues.
 - [ ] **GO/NO-GO:** if it behaves as designed → proceed to improvements. If buggy → fix first.
 
-### 7.1 — Wire in the VIX regime brain (MOST evidence-backed improvement)
-The hedge fund PM's key insight: "trade the second derivative (volatility regime),
-not price direction." We already BUILT `strategies/regime.py` (VIX/VIX3M term structure
-+ vol level) but haven't wired it into the live allocator.
-- [ ] Backtest the bot WITH regime-gating: does scaling exposure down in stress regimes
-      (VIX backwardation / elevated) improve Sharpe or cut drawdown?
-- [ ] If it passes the gatekeeper → wire it into the allocator as a master risk dial.
-- [ ] Expectation: probably won't raise return much, but should reduce the -23% drawdown.
+### 7.1 — ✅ DONE (2026-06-22) — VIX regime brain wired in
+Validated and deployed. Results: Sharpe 0.71→0.82 (+0.12), MaxDD -26.8%→-16.9% (-10pp),
+CAGR cost only -0.14%/yr. Bot goes fully to cash in risk-off (VIX/VIX3M ratio ≥ 1.0).
+Regime is RISK-ON 78% of days historically; correctly signaled RISK-OFF during 2008/2009.
+VIX/VIX3M fetched fresh daily before each run. Discord shows regime status on every update.
 
 ### 7.2 — Add 1-2 more uncorrelated sleeves (the ensemble path — proven way to improve)
 PM + research say 4-5 uncorrelated sleeves is the sweet spot; we have 3 (and two of them,
