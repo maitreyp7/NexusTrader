@@ -41,6 +41,13 @@ ALL = sorted(set(ALL_SYMBOLS) | set(CRYPTO_UNIVERSE))
 LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
+# ── Capital budget: the brain shares the account with the mean-rev bot ───────
+# The mean-rev bot (meanrev_runner.py) owns 30% of equity; the brain owns the rest.
+# The brain sizes its weights against equity * BRAIN_BUDGET so the two bots never
+# collectively over-allocate the account. Their universes are disjoint (ETFs+crypto
+# here vs single stocks there), so they also never fight over a symbol.
+BRAIN_BUDGET = 0.70
+
 
 def log(msg: str):
     line = f"{dt.datetime.now(dt.UTC).isoformat()[:19]}  {msg}"
@@ -163,26 +170,27 @@ def run(live: bool = False):
 
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    log(f"Account equity: ${equity:,.2f}  | cash: ${float(acct['cash']):,.2f}")
+    budget = equity * BRAIN_BUDGET   # brain manages only its slice; mean-rev bot owns the rest
+    log(f"Account equity: ${equity:,.2f}  | brain budget ({BRAIN_BUDGET*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
 
+    # Only count OUR universe's positions (ignore the mean-rev bot's single-stock holdings).
+    our_symbols = set(to_alpaca(s) for s in ALL)
     positions = _alpaca(env, "GET", "/v2/positions") or []
-    current = {p["symbol"]: float(p["market_value"]) / equity for p in positions}
+    current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in our_symbols}
     log(f"Current positions: {current if current else '(none)'}")
 
-    # Build target $ per symbol; compute orders as the difference
+    # Build target $ per symbol (weight * brain budget); compute orders as the difference.
     orders = []
-    our_symbols = set(to_alpaca(s) for s in ALL)
     target_alp = {to_alpaca(s): w for s, w in targets.items()}
 
     for asym in sorted(our_symbols):
-        tgt_w = target_alp.get(asym, 0.0)
-        cur_w = current.get(asym, 0.0)
-        diff_w = tgt_w - cur_w
-        if abs(diff_w) < 0.01:    # ignore tiny drifts (<1% of equity)
+        tgt_dollars = target_alp.get(asym, 0.0) * budget
+        cur_dollars = current.get(asym, 0.0)
+        diff = round(tgt_dollars - cur_dollars, 2)
+        if abs(diff) < max(25.0, 0.01 * budget):    # ignore tiny drifts
             continue
-        notional = round(diff_w * equity, 2)
-        side = "buy" if notional > 0 else "sell"
-        orders.append((asym, side, abs(notional)))
+        side = "buy" if diff > 0 else "sell"
+        orders.append((asym, side, abs(diff)))
 
     # CRITICAL isolation note: we only ever generate orders for OUR symbols.
     # Anything else in the account is never touched.
