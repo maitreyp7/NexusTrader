@@ -177,6 +177,7 @@ def run(live: bool = False):
     our_symbols = set(to_alpaca(s) for s in ALL)
     positions = _alpaca(env, "GET", "/v2/positions") or []
     current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in our_symbols}
+    held_qty = {p["symbol"]: float(p["qty"]) for p in positions if p["symbol"] in our_symbols}
 
     # DOUBLE-BUY GUARD: fold OPEN (unfilled) orders into current exposure so a second
     # run before fills don't re-order. (Same fix as meanrev_runner.)
@@ -204,8 +205,12 @@ def run(live: bool = False):
         diff = round(tgt_dollars - cur_dollars, 2)
         if abs(diff) < max(25.0, 0.01 * budget):    # ignore tiny drifts
             continue
-        side = "buy" if diff > 0 else "sell"
-        orders.append((asym, side, abs(diff)))
+        # Full exit of a (possibly fractional) position -> use the close endpoint, since
+        # a notional sell on a fractional position returns 403 Forbidden.
+        if tgt_dollars < 1.0 and held_qty.get(asym, 0.0) > 0:
+            orders.append((asym, "sell", cur_dollars, True))
+        else:
+            orders.append((asym, "buy" if diff > 0 else "sell", abs(diff), False))
 
     # CRITICAL isolation note: we only ever generate orders for OUR symbols.
     # Anything else in the account is never touched.
@@ -218,24 +223,31 @@ def run(live: bool = False):
         return
 
     log(f"Planned orders ({len(orders)}):")
-    for asym, side, notional in orders:
-        log(f"   {side.upper():4} {asym:10} ${notional:,.2f}")
+    for asym, side, notional, close_full in orders:
+        tag = " (CLOSE)" if close_full else ""
+        log(f"   {side.upper():4} {asym:10} ${notional:,.2f}{tag}")
 
     if not live:
         log("DRY-RUN — no orders placed. Re-run with --live to execute.")
-        order_lines = "\n".join(f"  {sd.upper()} {a} ${n:,.0f}" for a, sd, n in orders)
+        order_lines = "\n".join(f"  {sd.upper()} {a} ${n:,.0f}{' (CLOSE)' if cf else ''}"
+                                for a, sd, n, cf in orders)
         discord(env, f"🧪 **Quant brain DRY-RUN** — would place {len(orders)} orders:\n"
                      f"{order_lines}\nRegime: {regime_status} | Target: {tgt_str} | Equity ${equity:,.0f}")
         return
 
     placed = []
-    for asym, side, notional in orders:
+    for asym, side, notional, close_full in orders:
         try:
-            body = {"symbol": asym, "side": side, "type": "market",
-                    "time_in_force": "day", "notional": str(notional)}
-            res = _alpaca(env, "POST", "/v2/orders", body)
-            log(f"   placed: {side} {asym} ${notional} -> id {res.get('id','?')[:8]}")
-            placed.append(f"  {side.upper()} {asym} ${notional:,.0f}")
+            if close_full:
+                res = _alpaca(env, "DELETE", f"/v2/positions/{asym}")
+                log(f"   closed: {asym} (full) -> id {(res or {}).get('id','?')[:8]}")
+                placed.append(f"  CLOSE {asym}")
+            else:
+                body = {"symbol": asym, "side": side, "type": "market",
+                        "time_in_force": "day", "notional": str(notional)}
+                res = _alpaca(env, "POST", "/v2/orders", body)
+                log(f"   placed: {side} {asym} ${notional} -> id {res.get('id','?')[:8]}")
+                placed.append(f"  {side.upper()} {asym} ${notional:,.0f}")
         except Exception as e:
             log(f"   ORDER FAILED {side} {asym}: {str(e)[:120]}")
             placed.append(f"  ❌ {side.upper()} {asym} FAILED")

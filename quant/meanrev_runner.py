@@ -138,6 +138,7 @@ def run(live: bool = False):
     # Current positions — but ONLY the ones in OUR universe (ignore the brain's).
     positions = _alpaca(env, "GET", "/v2/positions") or []
     current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in OUR_NAMES}
+    held_qty = {p["symbol"]: float(p["qty"]) for p in positions if p["symbol"] in OUR_NAMES}
 
     # DOUBLE-BUY GUARD: also count any OPEN (unfilled) orders as already-committed
     # capital. Without this, a second run before the first fills sees "no position"
@@ -164,6 +165,9 @@ def run(live: bool = False):
     log(f"Current mean-rev exposure (filled + pending): {current if current else '(none)'}")
 
     # Target $ per name = weight * budget. Orders = difference vs current $.
+    # Each order is (symbol, side, notional, close_full) — close_full=True means
+    # "fully liquidate this position" (use the close-position endpoint, which is the
+    # ONLY reliable way to sell a FRACTIONAL position; a notional sell returns 403).
     orders = []
     target_dollars = {s: w * budget for s, w in targets.items()}
     all_names = set(target_dollars) | set(current)
@@ -175,8 +179,11 @@ def run(live: bool = False):
         diff = round(tgt - cur, 2)
         if abs(diff) < max(25.0, 0.005 * budget):   # ignore tiny drifts
             continue
-        side = "buy" if diff > 0 else "sell"
-        orders.append((sym, side, abs(diff)))
+        # Full exit: target is ~0 but we still hold shares -> liquidate via close endpoint.
+        if tgt < 1.0 and held_qty.get(sym, 0.0) > 0:
+            orders.append((sym, "sell", cur, True))
+        else:
+            orders.append((sym, "buy" if diff > 0 else "sell", abs(diff), False))
 
     tgt_str = ", ".join(f"{s}={w*100:.0f}%" for s, w in targets.items()) or "cash"
 
@@ -187,24 +194,33 @@ def run(live: bool = False):
         return
 
     log(f"Planned orders ({len(orders)}):")
-    for sym, side, notional in orders:
-        log(f"   {side.upper():4} {sym:6} ${notional:,.2f}")
+    for sym, side, notional, close_full in orders:
+        tag = " (CLOSE)" if close_full else ""
+        log(f"   {side.upper():4} {sym:6} ${notional:,.2f}{tag}")
 
     if not live:
         log("DRY-RUN — no orders placed. Re-run with --live to execute.")
-        order_lines = "\n".join(f"  {sd.upper()} {s} ${n:,.0f}" for s, sd, n in orders)
+        order_lines = "\n".join(f"  {sd.upper()} {s} ${n:,.0f}{' (CLOSE)' if cf else ''}"
+                                for s, sd, n, cf in orders)
         discord(env, f"🧪 **Mean-rev DRY-RUN** — would place {len(orders)} orders:\n"
                      f"{order_lines}\nTarget: {tgt_str} | Budget ${budget:,.0f}")
         return
 
     placed = []
-    for sym, side, notional in orders:
+    for sym, side, notional, close_full in orders:
         try:
-            body = {"symbol": sym, "side": side, "type": "market",
-                    "time_in_force": "day", "notional": str(notional)}
-            res = _alpaca(env, "POST", "/v2/orders", body)
-            log(f"   placed: {side} {sym} ${notional} -> id {res.get('id','?')[:8]}")
-            placed.append(f"  {side.upper()} {sym} ${notional:,.0f}")
+            if close_full:
+                # Liquidate the entire position (handles fractional shares correctly;
+                # a notional sell on a fractional position returns 403 Forbidden).
+                res = _alpaca(env, "DELETE", f"/v2/positions/{sym}")
+                log(f"   closed: {sym} (full) -> id {(res or {}).get('id','?')[:8]}")
+                placed.append(f"  CLOSE {sym}")
+            else:
+                body = {"symbol": sym, "side": side, "type": "market",
+                        "time_in_force": "day", "notional": str(notional)}
+                res = _alpaca(env, "POST", "/v2/orders", body)
+                log(f"   placed: {side} {sym} ${notional} -> id {res.get('id','?')[:8]}")
+                placed.append(f"  {side.upper()} {sym} ${notional:,.0f}")
         except Exception as e:
             log(f"   ORDER FAILED {side} {sym}: {str(e)[:120]}")
             placed.append(f"  ❌ {side.upper()} {sym} FAILED")
