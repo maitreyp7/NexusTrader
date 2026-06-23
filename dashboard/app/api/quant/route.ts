@@ -92,6 +92,21 @@ async function fetchRegime(): Promise<{ status: string; vix: number | null; vix3
   }
 }
 
+async function fetchEquityHistory(): Promise<number[]> {
+  // 1-month daily equity curve for the header sparkline. Best-effort.
+  try {
+    const res = await fetch(
+      `${BASE}/v2/account/portfolio/history?period=1M&timeframe=1D`,
+      { headers: alpacaHeaders, cache: 'no-store' },
+    );
+    if (!res.ok) return [];
+    const j = await res.json() as { equity?: (number | null)[] };
+    return (j.equity ?? []).filter((x): x is number => typeof x === 'number' && x > 0);
+  } catch {
+    return [];
+  }
+}
+
 export async function GET() {
   try {
     const [acctRes, posRes] = await Promise.all([
@@ -140,7 +155,7 @@ export async function GET() {
     const other = positions.filter(p => !BRAIN_SYMBOLS.has(p.symbol) && !MEANREV_SYMBOLS.has(p.symbol));
     const otherValue = other.reduce((s, p) => s + parseFloat(p.market_value), 0);
 
-    const regime = await fetchRegime();
+    const [regime, equityHistory] = await Promise.all([fetchRegime(), fetchEquityHistory()]);
 
     // Health flags (mirror health_check.py)
     const alerts: string[] = [];
@@ -154,6 +169,7 @@ export async function GET() {
       invested: brain.marketValue + meanrev.marketValue,
       bots: [brain, meanrev],
       other: { value: Math.round(otherValue * 100) / 100, symbols: other.map(p => p.symbol) },
+      equityHistory,
       regime,
       alerts,
       health: alerts.length === 0 ? 'HEALTHY' : 'NEEDS ATTENTION',
