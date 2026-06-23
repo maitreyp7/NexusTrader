@@ -37,7 +37,9 @@ from stock_universe import STOCK_UNIVERSE
 import name_meanrev
 
 # ── Capital budget: this bot manages this fraction of total account equity ───
-MEANREV_BUDGET = 0.30        # 30% of equity to the mean-rev bot
+# The split is DYNAMIC (gentle perf-tilt, shared with the brain via dynamic_budget).
+# This constant is the NEUTRAL fallback used if the dynamic computation fails.
+MEANREV_BUDGET = 0.30        # neutral fallback (30% of equity to the mean-rev bot)
 MAX_PER_NAME   = 0.10        # never more than 10% of equity in one name
 
 # Validated param set (most robust in the hunt)
@@ -132,8 +134,16 @@ def run(live: bool = False):
 
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    budget = equity * MEANREV_BUDGET
-    log(f"Account equity: ${equity:,.2f}  | mean-rev budget ({MEANREV_BUDGET*100:.0f}%): ${budget:,.2f}")
+    # Dynamic split (gentle perf-tilt). Shared with the brain; fails safe to 30%.
+    try:
+        import dynamic_budget
+        _brain_frac, meanrev_frac, _split_info = dynamic_budget.compute_split()
+        log(f"Dynamic split: mean-rev {meanrev_frac*100:.0f}% / brain {_brain_frac*100:.0f}%  ({_split_info})")
+    except Exception as e:
+        meanrev_frac = MEANREV_BUDGET
+        log(f"[budget] dynamic split failed, using {MEANREV_BUDGET*100:.0f}%: {str(e)[:80]}")
+    budget = equity * meanrev_frac
+    log(f"Account equity: ${equity:,.2f}  | mean-rev budget ({meanrev_frac*100:.0f}%): ${budget:,.2f}")
 
     # Current positions — but ONLY the ones in OUR universe (ignore the brain's).
     positions = _alpaca(env, "GET", "/v2/positions") or []

@@ -28,8 +28,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "strategies"))
 
 # Reuse the runners' helpers + config (single source of truth)
-from meanrev_runner import _env, _alpaca, discord, OUR_NAMES, MEANREV_BUDGET
-from live_runner import BRAIN_BUDGET, ALL, to_alpaca
+from meanrev_runner import _env, _alpaca, discord, OUR_NAMES
+from live_runner import ALL, to_alpaca
+
+# The split is dynamic now; fetch the CURRENT budgets so alarms track the real caps.
+try:
+    import dynamic_budget
+    BRAIN_BUDGET, MEANREV_BUDGET, _ = dynamic_budget.compute_split()
+except Exception:
+    BRAIN_BUDGET, MEANREV_BUDGET = 0.70, 0.30
 
 BRAIN_SYMBOLS = set(to_alpaca(s) for s in ALL)
 DRIFT_TOL = 0.08        # alert if a bot's share is off its target by > 8 percentage pts

@@ -22,9 +22,13 @@ const alpacaHeaders = {
   'APCA-API-SECRET-KEY': SECRET,
 };
 
-// Budget caps (mirror the Python runners: BRAIN_BUDGET / MEANREV_BUDGET).
-const BRAIN_BUDGET   = 0.70;
-const MEANREV_BUDGET = 0.30;
+// Budget caps. The live split is DYNAMIC (gentle perf-tilt, brain ∈ [60%,80%]).
+// We show the neutral 70/30 as the reference cap and only alarm if a bot exceeds
+// its DYNAMIC ceiling (brain 80% / mean-rev 40%) — so the tilt doesn't false-alarm.
+const BRAIN_BUDGET   = 0.70;   // reference (neutral)
+const MEANREV_BUDGET = 0.30;   // reference (neutral)
+const BRAIN_CEIL     = 0.80;   // dynamic max
+const MEANREV_CEIL   = 0.40;   // dynamic max
 
 // Brain universe: ETFs + crypto (Alpaca symbols). Must match live_runner.py ALL.
 const BRAIN_SYMBOLS = new Set<string>([
@@ -159,8 +163,8 @@ export async function GET() {
 
     // Health flags (mirror health_check.py)
     const alerts: string[] = [];
-    if (meanrev.share > MEANREV_BUDGET + 0.08) alerts.push(`Mean-rev over budget: ${(meanrev.share * 100).toFixed(0)}%`);
-    if (brain.share   > BRAIN_BUDGET   + 0.08) alerts.push(`Brain over budget: ${(brain.share * 100).toFixed(0)}%`);
+    if (meanrev.share > MEANREV_CEIL + 0.08) alerts.push(`Mean-rev over budget: ${(meanrev.share * 100).toFixed(0)}%`);
+    if (brain.share   > BRAIN_CEIL   + 0.08) alerts.push(`Brain over budget: ${(brain.share * 100).toFixed(0)}%`);
     if (otherValue > 0.01 * equity)            alerts.push(`Unowned positions: ${other.map(p => p.symbol).join(', ')}`);
     if (dayPnLPct < -0.03)                     alerts.push(`Account down ${(dayPnLPct * 100).toFixed(1)}% today`);
 

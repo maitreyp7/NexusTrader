@@ -42,11 +42,14 @@ LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # ── Capital budget: the brain shares the account with the mean-rev bot ───────
-# The mean-rev bot (meanrev_runner.py) owns 30% of equity; the brain owns the rest.
-# The brain sizes its weights against equity * BRAIN_BUDGET so the two bots never
-# collectively over-allocate the account. Their universes are disjoint (ETFs+crypto
-# here vs single stocks there), so they also never fight over a symbol.
-BRAIN_BUDGET = 0.70
+# The two bots split the account. The split is DYNAMIC (gentle performance-tilt,
+# validated in validate_allocation.py): it leans up to ±10% toward whichever bot
+# has performed better over the trailing 42 days, clamped to brain ∈ [60%, 80%].
+# Both runners call dynamic_budget.compute_split() so they share ONE consistent
+# split. Falls back to 70/30 if the computation fails (enhancement, not dependency).
+# Their universes are disjoint (ETFs+crypto vs single stocks), so they never fight
+# over a symbol regardless of the split.
+BASE_BRAIN_BUDGET = 0.70   # neutral fallback
 
 
 def log(msg: str):
@@ -170,8 +173,16 @@ def run(live: bool = False):
 
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    budget = equity * BRAIN_BUDGET   # brain manages only its slice; mean-rev bot owns the rest
-    log(f"Account equity: ${equity:,.2f}  | brain budget ({BRAIN_BUDGET*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
+    # Dynamic split (gentle perf-tilt). Shared by both bots; fails safe to 70/30.
+    try:
+        import dynamic_budget
+        brain_budget_frac, _mr_frac, _split_info = dynamic_budget.compute_split()
+        log(f"Dynamic split: brain {brain_budget_frac*100:.0f}% / mean-rev {_mr_frac*100:.0f}%  ({_split_info})")
+    except Exception as e:
+        brain_budget_frac = BASE_BRAIN_BUDGET
+        log(f"[budget] dynamic split failed, using {BASE_BRAIN_BUDGET*100:.0f}%: {str(e)[:80]}")
+    budget = equity * brain_budget_frac   # brain manages only its slice; mean-rev bot owns the rest
+    log(f"Account equity: ${equity:,.2f}  | brain budget ({brain_budget_frac*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
 
     # Only count OUR universe's positions (ignore the mean-rev bot's single-stock holdings).
     our_symbols = set(to_alpaca(s) for s in ALL)
