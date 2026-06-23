@@ -177,7 +177,22 @@ def run(live: bool = False):
     our_symbols = set(to_alpaca(s) for s in ALL)
     positions = _alpaca(env, "GET", "/v2/positions") or []
     current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in our_symbols}
-    log(f"Current positions: {current if current else '(none)'}")
+
+    # DOUBLE-BUY GUARD: fold OPEN (unfilled) orders into current exposure so a second
+    # run before fills don't re-order. (Same fix as meanrev_runner.)
+    open_orders = _alpaca(env, "GET", "/v2/orders?status=open&limit=200") or []
+    for o in open_orders:
+        sym = o.get("symbol")
+        if sym not in our_symbols:
+            continue
+        notion = o.get("notional")
+        if notion is None:
+            qty = float(o.get("qty") or 0)
+            px = float(o.get("limit_price") or o.get("filled_avg_price") or 0)
+            notion = qty * px
+        notion = float(notion or 0)
+        current[sym] = current.get(sym, 0.0) + (notion if o.get("side") == "buy" else -notion)
+    log(f"Current positions (filled + pending): {current if current else '(none)'}")
 
     # Build target $ per symbol (weight * brain budget); compute orders as the difference.
     orders = []

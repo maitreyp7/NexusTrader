@@ -138,7 +138,30 @@ def run(live: bool = False):
     # Current positions — but ONLY the ones in OUR universe (ignore the brain's).
     positions = _alpaca(env, "GET", "/v2/positions") or []
     current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in OUR_NAMES}
-    log(f"Current mean-rev positions: {current if current else '(none)'}")
+
+    # DOUBLE-BUY GUARD: also count any OPEN (unfilled) orders as already-committed
+    # capital. Without this, a second run before the first fills sees "no position"
+    # and buys again — exactly the bug that doubled exposure on 2026-06-22. We fold
+    # pending buy/sell notional into `current` so we only trade the REMAINING gap.
+    open_orders = _alpaca(env, "GET", "/v2/orders?status=open&limit=200") or []
+    pending = {}
+    for o in open_orders:
+        sym = o.get("symbol")
+        if sym not in OUR_NAMES:
+            continue
+        # notional may be set directly, or estimate qty*price if a qty order
+        notion = o.get("notional")
+        if notion is None:
+            qty = float(o.get("qty") or 0)
+            px = float(o.get("limit_price") or o.get("filled_avg_price") or 0)
+            notion = qty * px
+        notion = float(notion or 0)
+        signed = notion if o.get("side") == "buy" else -notion
+        pending[sym] = pending.get(sym, 0.0) + signed
+        current[sym] = current.get(sym, 0.0) + signed
+    if pending:
+        log(f"Pending (unfilled) orders folded in: {pending}")
+    log(f"Current mean-rev exposure (filled + pending): {current if current else '(none)'}")
 
     # Target $ per name = weight * budget. Orders = difference vs current $.
     orders = []
