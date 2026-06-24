@@ -161,6 +161,12 @@ def run(live: bool = False):
     mode = "LIVE (paper)" if live else "DRY-RUN"
     log(f"=== Quant brain runner — {mode} ===")
 
+    # EQUITY PROTECTOR kill switch: if the independent protector has halted the
+    # account, do NOT trade. A human must clear KILL_SWITCH.json to resume.
+    if os.path.exists(os.path.join(os.path.dirname(__file__), "KILL_SWITCH.json")):
+        log("HALTED: equity protector kill switch is active. Not trading. Clear KILL_SWITCH.json to resume.")
+        return
+
     # safety: confirm we're on a PAPER endpoint
     base = env.get("ALPACA_BASE_URL", "")
     if live and "paper" not in base:

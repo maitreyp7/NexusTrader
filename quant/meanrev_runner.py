@@ -123,6 +123,11 @@ def run(live: bool = False):
     mode = "LIVE (paper)" if live else "DRY-RUN"
     log(f"=== Mean-rev bot runner — {mode} ===")
 
+    # EQUITY PROTECTOR kill switch: refuse to trade if the protector has halted us.
+    if os.path.exists(os.path.join(os.path.dirname(__file__), "KILL_SWITCH.json")):
+        log("HALTED: equity protector kill switch is active. Not trading. Clear KILL_SWITCH.json to resume.")
+        return
+
     base = env.get("ALPACA_BASE_URL", "")
     if live and "paper" not in base:
         log("REFUSING: ALPACA_BASE_URL is not a paper endpoint. Aborting for safety.")
