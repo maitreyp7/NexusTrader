@@ -47,3 +47,7 @@ quant/live_logs/
 # equity protector runtime state (never commit)
 quant/KILL_SWITCH.json
 quant/protector_state.json
+
+# research platform caches
+quant/research/**/__pycache__/
+quant/research/experiments/*/results.json
