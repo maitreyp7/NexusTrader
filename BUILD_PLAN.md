@@ -1,5 +1,24 @@
 # NexusTrader Build Plan — Prioritized, Step by Step
 
+> ## 📌 QUEUED — BUILD LOW-VOL AS 3RD BOT (target: ~2026-07-14, after 2 bots prove out)
+> **Low-volatility tilt is VALIDATED and ready to deploy as bot #3 — but NOT YET.**
+> Deploy it only AFTER the current 2 bots (brain + mean-rev) have ~2-3 clean weeks live
+> (no failed orders, tracks backtest). Adding a 3rd bot into an unproven system = more
+> bugs + muddied data. The edge is a 50yr anomaly — it's not going anywhere; wait for the
+> foundation to prove out first.
+> - **Validated (2026-06-30):** standalone Sharpe 1.05, +13%/yr, 18/19 eras, robust
+>   parameter plateau (not overfit). Blend at **60 brain / 25 mrev / 15 lowvol** improves
+>   the system on ALL axes: Sharpe 1.11→1.25, CAGR +6.4%→+7.3%, drawdown -11.8%→-11.3%.
+> - **Full report:** `quant/research/experiments/2026_001_lowvol_tilt/`
+> - **Reality check:** it's ~+1%/yr — real but modest. Capital, not sleeve count, is the
+>   lever. On $3k this is ~$210→$240/yr.
+> - **Build steps when ready:** (1) new `lowvol_runner.py` mirroring meanrev_runner.py
+>   structure (own budget, own logs, disjoint universe = large-cap stocks, kill-switch
+>   guard); (2) update `dynamic_budget.py` to a 3-way split; (3) update health_check +
+>   dashboard `/api/quant` to a 3-bot view; (4) dry-run → live → cron. Re-validate live.
+
+---
+
 > ## ⚡ CURRENT STATE (updated 2026-06-21)
 > **Phases 0-5 + live paper deployment are DONE.** The validated 3-sleeve quant bot
 > (ETF-trend + crypto-trend + turn-of-month) is LIVE ON PAPER and AUTONOMOUS:
