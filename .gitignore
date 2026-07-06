@@ -51,3 +51,6 @@ quant/protector_state.json
 # research platform caches
 quant/research/**/__pycache__/
 quant/research/experiments/*/results.json
+
+# ownership ledger (runtime state, per-account)
+quant/ownership.json

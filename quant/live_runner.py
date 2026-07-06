@@ -179,14 +179,14 @@ def run(live: bool = False):
 
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    # Dynamic split (gentle perf-tilt). Shared by both bots; fails safe to 70/30.
+    # Dynamic split (3-way: brain / mean-rev / low-vol). Fails safe to 60%.
     try:
         import dynamic_budget
-        brain_budget_frac, _mr_frac, _split_info = dynamic_budget.compute_split()
-        log(f"Dynamic split: brain {brain_budget_frac*100:.0f}% / mean-rev {_mr_frac*100:.0f}%  ({_split_info})")
+        brain_budget_frac, _mr_frac, _lv_frac, _split_info = dynamic_budget.compute_split3()
+        log(f"3-way split: brain {brain_budget_frac*100:.0f}% / mean-rev {_mr_frac*100:.0f}% / low-vol {_lv_frac*100:.0f}%")
     except Exception as e:
-        brain_budget_frac = BASE_BRAIN_BUDGET
-        log(f"[budget] dynamic split failed, using {BASE_BRAIN_BUDGET*100:.0f}%: {str(e)[:80]}")
+        brain_budget_frac = 0.60
+        log(f"[budget] split3 failed, using 60%: {str(e)[:80]}")
     budget = equity * brain_budget_frac   # brain manages only its slice; mean-rev bot owns the rest
     log(f"Account equity: ${equity:,.2f}  | brain budget ({brain_budget_frac*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
 

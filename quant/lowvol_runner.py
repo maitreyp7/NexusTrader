@@ -1,25 +1,23 @@
 """
-meanrev_runner.py — Live (paper) runner for the single-name mean-reversion bot.
+lowvol_runner.py — Live (paper) runner for the low-volatility bot (Bot #3).
 
-This is a SECOND, independent bot that runs ALONGSIDE the quant brain on the same
-paper account. It trades a different universe (individual large-cap stocks) with a
-different edge (short-term oversold-bounce reversion, hold 2-10 days).
+THIRD independent bot, running alongside the brain and mean-rev on the same paper
+account. Holds the 15 lowest-volatility large caps (equal weight), rebalanced monthly.
+~15% of equity (fixed). A validated 50-year anomaly (Sharpe 1.05 standalone) that
+improves the whole system's Sharpe + drawdown.
 
-Validated standalone: Sharpe 1.06, CAGR +12.4%/yr, survives 2x costs, positive in
-11/12 eras, stronger in recent data. Params: RSI(2) entry<5, exit>60, 10-day stop.
+═══ COEXISTENCE (capital + collision safety) ═══
+Budget: fixed 15% of equity (dynamic_budget.compute_split3 → lowvol slice). Sizes
+against its OWN budget, never total equity.
+Collision: mean-rev trades the SAME stock universe, so we CANNOT infer "my positions"
+by symbol membership alone. We use the shared ownership ledger (ownership.py):
+  - count as "current" ONLY symbols in low-vol's ledger section,
+  - at rebalance, SKIP any candidate mean-rev currently owns (next-lowest-vol fills in),
+  - after fills, write our ledger section so mean-rev knows to leave our shares alone.
 
-═══ HOW THE TWO BOTS COEXIST ON ONE ACCOUNT (capital isolation) ═══
-Both bots size positions as a fraction of capital. If each used TOTAL equity they'd
-collectively over-allocate. So each bot owns a FIXED SLICE:
-  - brain   → 70% of equity (CAPITAL_BUDGET in its runner; implicitly the rest)
-  - meanrev → 30% of equity (MEANREV_BUDGET below)
-This bot sizes against its OWN budget (equity * MEANREV_BUDGET) and ONLY ever trades
-its own stock universe. It never reads or touches the brain's ETF/crypto positions.
-The two universes don't overlap (brain = ETFs+crypto; this = single stocks), so even
-the position lists are disjoint — by construction they cannot fight over a symbol.
-
-SAFETY: --dry-run by default (prints, places nothing). --live required to send orders.
-Refuses any non-paper endpoint. Own state file, own logs, own Discord line.
+Mirrors meanrev_runner.py's hard-won safety rails: --dry-run default, --live required,
+kill-switch guard, non-paper endpoint refusal, open-order double-buy guard,
+close-position endpoint for fractional full exits, min-order filter, own log + Discord.
 """
 
 from __future__ import annotations
@@ -34,26 +32,24 @@ import numpy as np
 from data import get_universe
 from engine import build_price_panel
 from stock_universe import STOCK_UNIVERSE
-import name_meanrev
+import lowvol
 import ownership
 
-# ── Capital budget: this bot manages this fraction of total account equity ───
-# The split is DYNAMIC (gentle perf-tilt, shared with the brain via dynamic_budget).
-# This constant is the NEUTRAL fallback used if the dynamic computation fails.
-MEANREV_BUDGET = 0.30        # neutral fallback (30% of equity to the mean-rev bot)
-MAX_PER_NAME   = 0.10        # never more than 10% of equity in one name
-
-# Validated param set (most robust in the hunt)
-PARAMS = dict(entry_rsi=5, exit_rsi=60, hold_max=10, max_names=10, max_weight=0.10)
+# ── Capital budget (fixed 15%; dynamic_budget provides the live value) ───────
+LOWVOL_BUDGET = 0.15        # neutral fallback (15% of equity to the low-vol bot)
+MAX_PER_NAME  = 0.08        # 1/15 (~6.7%) + headroom
+N_NAMES       = 15
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
+
+OUR_NAMES = set(STOCK_UNIVERSE)   # candidate universe (shared with mean-rev!)
 
 
 def log(msg: str):
     line = f"{dt.datetime.now(dt.UTC).isoformat()[:19]}  {msg}"
     print(line)
-    with open(os.path.join(LOG_DIR, "meanrev.log"), "a") as f:
+    with open(os.path.join(LOG_DIR, "lowvol.log"), "a") as f:
         f.write(line + "\n")
 
 
@@ -65,7 +61,7 @@ def discord(env, msg: str):
         body = json.dumps({"content": msg[:1900]}).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Content-Type": "application/json",
-            "User-Agent": "NexusMeanRevBot/1.0 (+https://nexustrader.local)",
+            "User-Agent": "NexusLowVolBot/1.0 (+https://nexustrader.local)",
         })
         urllib.request.urlopen(req, timeout=15)
     except Exception as e:
@@ -97,34 +93,32 @@ def _alpaca(env, method, path, body=None):
         return json.load(r) if r.length != 0 else None
 
 
-# The set of symbols THIS bot is allowed to touch (its universe). Disjoint from the
-# brain's ETF/crypto universe — guarantees the two bots never trade the same name.
-OUR_NAMES = set(STOCK_UNIVERSE)
-
-
 def compute_targets() -> pd.Series:
-    """Run the mean-rev strategy on fresh data; return today's target weight per name,
-    expressed as a fraction of THIS BOT'S BUDGET (not total equity)."""
+    """Run low-vol on fresh data (excluding mean-rev-owned names); return today's
+    target weight per name as a fraction of THIS bot's budget."""
     log("Pulling fresh daily bars for stock universe...")
     panel = build_price_panel(get_universe(STOCK_UNIVERSE, force=True)).ffill()
-    w = name_meanrev.strategy(panel, **PARAMS)
 
+    # COLLISION AVOIDANCE: skip any name mean-rev currently owns (per the ledger).
+    meanrev_owned = ownership.other_symbols("lowvol")   # = mean-rev's ledger symbols
+    if meanrev_owned:
+        log(f"Excluding {len(meanrev_owned)} mean-rev-owned names from candidates: {sorted(meanrev_owned)}")
+
+    w = lowvol.strategy(panel, n=N_NAMES, exclude=meanrev_owned)
     valid_rows = panel.dropna(how="all")
     last_valid = valid_rows.index[-1]
     log(f"Last valid market date: {last_valid.date()}")
     today = w.loc[last_valid]
-    held = today[today > 0.001]
-    # cap per name (already capped in strategy, belt-and-suspenders)
-    held = held.clip(upper=MAX_PER_NAME)
+    held = today[today > 0.001].clip(upper=MAX_PER_NAME)
     return held
 
 
 def run(live: bool = False):
     env = _env()
     mode = "LIVE (paper)" if live else "DRY-RUN"
-    log(f"=== Mean-rev bot runner — {mode} ===")
+    log(f"=== Low-vol bot runner — {mode} ===")
 
-    # EQUITY PROTECTOR kill switch: refuse to trade if the protector has halted us.
+    # EQUITY PROTECTOR kill switch.
     if os.path.exists(os.path.join(os.path.dirname(__file__), "KILL_SWITCH.json")):
         log("HALTED: equity protector kill switch is active. Not trading. Clear KILL_SWITCH.json to resume.")
         return
@@ -134,46 +128,44 @@ def run(live: bool = False):
         log("REFUSING: ALPACA_BASE_URL is not a paper endpoint. Aborting for safety.")
         return
 
-    targets = compute_targets()   # weights as fraction of THIS bot's budget
+    targets = compute_targets()
     log(f"Target ({len(targets)} names): " +
         (", ".join(f"{s}={w*100:.1f}%" for s, w in targets.items()) or "(none — all in cash)"))
 
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    # Dynamic split (3-way: brain / mean-rev / low-vol). Fails safe to 25%.
+    # Fixed 15% (3-way split). Fails safe to 15%.
     try:
         import dynamic_budget
-        _brain_frac, meanrev_frac, _lowvol_frac, _split_info = dynamic_budget.compute_split3()
-        log(f"3-way split: mean-rev {meanrev_frac*100:.0f}% / brain {_brain_frac*100:.0f}% / low-vol {_lowvol_frac*100:.0f}%")
+        _b, _m, lowvol_frac, _info = dynamic_budget.compute_split3()
+        log(f"3-way split: brain {_b*100:.0f}% / mean-rev {_m*100:.0f}% / low-vol {lowvol_frac*100:.0f}%")
     except Exception as e:
-        meanrev_frac = 0.25
-        log(f"[budget] split3 failed, using 25%: {str(e)[:80]}")
-    budget = equity * meanrev_frac
-    log(f"Account equity: ${equity:,.2f}  | mean-rev budget ({meanrev_frac*100:.0f}%): ${budget:,.2f}")
+        lowvol_frac = LOWVOL_BUDGET
+        log(f"[budget] split3 failed, using {LOWVOL_BUDGET*100:.0f}%: {str(e)[:80]}")
+    budget = equity * lowvol_frac
+    log(f"Account equity: ${equity:,.2f}  | low-vol budget ({lowvol_frac*100:.0f}%): ${budget:,.2f}")
 
-    # Current positions — ONLY our universe, AND excluding shares the low-vol bot
-    # owns (per the ownership ledger). Without this, mean-rev would count low-vol's
-    # shares as its own and could liquidate them on exit (the June 9 collision bug
-    # class). Defensive: empty ledger → old behavior, no worse than before.
-    lowvol_owned = ownership.owned_symbols("meanrev")   # = low-vol's ledger symbols
-    if lowvol_owned:
-        log(f"Ignoring {len(lowvol_owned)} low-vol-owned names (ledger): {sorted(lowvol_owned)}")
-    tradable = OUR_NAMES - lowvol_owned
+    # CURRENT = only symbols in OUR ledger section (NOT symbol-membership — mean-rev
+    # trades the same universe). Match ledger qty to live Alpaca positions.
+    ledger_syms = ownership.owned_symbols("lowvol")
     positions = _alpaca(env, "GET", "/v2/positions") or []
-    current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in tradable}
-    held_qty = {p["symbol"]: float(p["qty"]) for p in positions if p["symbol"] in tradable}
+    pos_by_sym = {p["symbol"]: p for p in positions}
+    current, held_qty = {}, {}
+    for sym in ledger_syms:
+        p = pos_by_sym.get(sym)
+        if p:
+            current[sym] = float(p["market_value"])
+            held_qty[sym] = float(p["qty"])
 
-    # DOUBLE-BUY GUARD: also count any OPEN (unfilled) orders as already-committed
-    # capital. Without this, a second run before the first fills sees "no position"
-    # and buys again — exactly the bug that doubled exposure on 2026-06-22. We fold
-    # pending buy/sell notional into `current` so we only trade the REMAINING gap.
+    # DOUBLE-BUY GUARD: fold open (unfilled) orders for OUR ledger symbols + today's
+    # target symbols into current, so a second run before fills doesn't re-order.
+    relevant = ledger_syms | set(targets.index)
     open_orders = _alpaca(env, "GET", "/v2/orders?status=open&limit=200") or []
     pending = {}
     for o in open_orders:
         sym = o.get("symbol")
-        if sym not in OUR_NAMES:
+        if sym not in relevant:
             continue
-        # notional may be set directly, or estimate qty*price if a qty order
         notion = o.get("notional")
         if notion is None:
             qty = float(o.get("qty") or 0)
@@ -185,25 +177,20 @@ def run(live: bool = False):
         current[sym] = current.get(sym, 0.0) + signed
     if pending:
         log(f"Pending (unfilled) orders folded in: {pending}")
-    log(f"Current mean-rev exposure (filled + pending): {current if current else '(none)'}")
+    log(f"Current low-vol exposure (ledger + pending): {current if current else '(none)'}")
 
-    # Target $ per name = weight * budget. Orders = difference vs current $.
-    # Each order is (symbol, side, notional, close_full) — close_full=True means
-    # "fully liquidate this position" (use the close-position endpoint, which is the
-    # ONLY reliable way to sell a FRACTIONAL position; a notional sell returns 403).
+    # Build orders = target$ - current$. Full exit uses the close endpoint.
     orders = []
-    # Drop any candidate the low-vol bot owns (never trade its shares).
-    target_dollars = {s: w * budget for s, w in targets.items() if s not in lowvol_owned}
+    target_dollars = {s: w * budget for s, w in targets.items()}
     all_names = set(target_dollars) | set(current)
     for sym in sorted(all_names):
-        if sym not in tradable:
+        if sym not in OUR_NAMES:
             continue
         tgt = target_dollars.get(sym, 0.0)
         cur = current.get(sym, 0.0)
         diff = round(tgt - cur, 2)
         if abs(diff) < max(25.0, 0.005 * budget):   # ignore tiny drifts
             continue
-        # Full exit: target is ~0 but we still hold shares -> liquidate via close endpoint.
         if tgt < 1.0 and held_qty.get(sym, 0.0) > 0:
             orders.append((sym, "sell", cur, True))
         else:
@@ -213,20 +200,20 @@ def run(live: bool = False):
 
     if not orders:
         log("No orders needed — already matches target.")
-        discord(env, f"🔁 **Mean-rev bot** ({mode}) — no trades. "
+        discord(env, f"🐢 **Low-vol bot** ({mode}) — no trades. "
                      f"Holding: {tgt_str} | Budget ${budget:,.0f}")
+        _sync_ledger(env, targets, held_qty, live)
         return
 
     log(f"Planned orders ({len(orders)}):")
     for sym, side, notional, close_full in orders:
-        tag = " (CLOSE)" if close_full else ""
-        log(f"   {side.upper():4} {sym:6} ${notional:,.2f}{tag}")
+        log(f"   {side.upper():4} {sym:6} ${notional:,.2f}{' (CLOSE)' if close_full else ''}")
 
     if not live:
         log("DRY-RUN — no orders placed. Re-run with --live to execute.")
         order_lines = "\n".join(f"  {sd.upper()} {s} ${n:,.0f}{' (CLOSE)' if cf else ''}"
                                 for s, sd, n, cf in orders)
-        discord(env, f"🧪 **Mean-rev DRY-RUN** — would place {len(orders)} orders:\n"
+        discord(env, f"🧪 **Low-vol DRY-RUN** — would place {len(orders)} orders:\n"
                      f"{order_lines}\nTarget: {tgt_str} | Budget ${budget:,.0f}")
         return
 
@@ -234,8 +221,6 @@ def run(live: bool = False):
     for sym, side, notional, close_full in orders:
         try:
             if close_full:
-                # Liquidate the entire position (handles fractional shares correctly;
-                # a notional sell on a fractional position returns 403 Forbidden).
                 res = _alpaca(env, "DELETE", f"/v2/positions/{sym}")
                 log(f"   closed: {sym} (full) -> id {(res or {}).get('id','?')[:8]}")
                 placed.append(f"  CLOSE {sym}")
@@ -248,19 +233,26 @@ def run(live: bool = False):
         except Exception as e:
             log(f"   ORDER FAILED {side} {sym}: {str(e)[:120]}")
             placed.append(f"  ❌ {side.upper()} {sym} FAILED")
-    discord(env, f"🔁 **Mean-rev bot LIVE (paper)** — placed {len(placed)} orders:\n"
+
+    discord(env, f"🐢 **Low-vol bot LIVE (paper)** — placed {len(placed)} orders:\n"
                  + "\n".join(placed) + f"\nTarget: {tgt_str} | Budget ${budget:,.0f}")
-    # Record what mean-rev now owns so the low-vol bot leaves its shares alone.
+    _sync_ledger(env, targets, held_qty, live)
+    log("=== run complete ===")
+
+
+def _sync_ledger(env, targets, held_qty, live: bool):
+    """After trading, record what low-vol now owns so mean-rev leaves it alone.
+    Re-reads live positions for the target names to capture actual filled qty."""
+    if not live:
+        return
     try:
-        positions2 = _alpaca(env, "GET", "/v2/positions") or []
-        pos_qty = {p["symbol"]: float(p["qty"]) for p in positions2}
-        holdings = {s: pos_qty.get(s, 0.0) for s in targets.index
-                    if pos_qty.get(s, 0.0) > 0 and s not in lowvol_owned}
-        ownership.write_section("meanrev", holdings)
-        log(f"Ledger updated: mean-rev owns {sorted(holdings)}")
+        positions = _alpaca(env, "GET", "/v2/positions") or []
+        pos_by_sym = {p["symbol"]: float(p["qty"]) for p in positions}
+        holdings = {s: pos_by_sym.get(s, 0.0) for s in targets.index if pos_by_sym.get(s, 0.0) > 0}
+        ownership.write_section("lowvol", holdings)
+        log(f"Ledger updated: low-vol owns {sorted(holdings)}")
     except Exception as e:
         log(f"[ledger] update failed: {str(e)[:80]}")
-    log("=== run complete ===")
 
 
 if __name__ == "__main__":

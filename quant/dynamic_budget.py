@@ -80,8 +80,34 @@ def compute_split() -> tuple[float, float, dict]:
         return BASE_BRAIN_BUDGET, 1.0 - BASE_BRAIN_BUDGET, {"error": str(e)[:80], "fallback": True}
 
 
+# ── 3-way split (brain / mean-rev / low-vol) ─────────────────────────────────
+# Low-vol is FIXED at 15% (the validated 60/25/15 blend). We do NOT invent a
+# 3-way performance tilt — that's unvalidated. The existing 2-way brain/mrev
+# gentle tilt runs UNCHANGED inside the remaining 85%: compute the 2-way split,
+# then scale both by 0.85 so brain+mrev+lowvol = 1.0.
+LOWVOL_BUDGET = 0.15
+
+
+def compute_split3() -> tuple[float, float, float, dict]:
+    """Return (brain, meanrev, lowvol, info). lowvol fixed at 0.15; the validated
+    2-way tilt is applied between brain and mean-rev inside their 0.85 share.
+    Falls back to 0.60/0.25/0.15 if anything fails."""
+    try:
+        brain2, mrev2, info = compute_split()   # 2-way split summing to 1.0
+        rest = 1.0 - LOWVOL_BUDGET               # 0.85
+        brain = round(brain2 * rest, 4)
+        mrev = round(mrev2 * rest, 4)
+        info = {**info, "lowvol": LOWVOL_BUDGET, "split": "3-way (lowvol fixed 15%)"}
+        return brain, mrev, LOWVOL_BUDGET, info
+    except Exception as e:
+        return 0.60, 0.25, LOWVOL_BUDGET, {"error": str(e)[:80], "fallback3": True}
+
+
 if __name__ == "__main__":
     import warnings; warnings.filterwarnings("ignore")
     b, m, info = compute_split()
-    print(f"Brain budget: {b*100:.1f}%  |  Mean-rev budget: {m*100:.1f}%")
-    print(f"Info: {info}")
+    print(f"[2-way] Brain: {b*100:.1f}%  |  Mean-rev: {m*100:.1f}%")
+    print(f"        Info: {info}")
+    b3, m3, l3, info3 = compute_split3()
+    print(f"[3-way] Brain: {b3*100:.1f}%  |  Mean-rev: {m3*100:.1f}%  |  Low-vol: {l3*100:.1f}%  (sum {(b3+m3+l3)*100:.1f}%)")
+    print(f"        Info: {info3}")
