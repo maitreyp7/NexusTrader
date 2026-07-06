@@ -72,6 +72,18 @@ To add an entry, run `python graveyard.py add` or append below following the for
 - **Why rejected:** 14-28% win rate, the sole consumer of the unvalidated market-lens pipeline.
   Sentiment/news as a primary BUY trigger never validated. Sole net loser of the old system.
 
+## Leverage overlay (margin or vol-targeted, on the blend)
+- **Status:** REJECTED (financing-bound)
+- **Date:** 2026-07-06
+- **What:** Lever the proven blend 1.25-2x (static or vol-targeted, cap 2x) to convert
+  its Sharpe ~1.25 into higher CAGR, paying honest retail margin (IRX + 2.5%).
+- **Why rejected:** CAGR is FLAT (+7.3%) at every leverage level while MaxDD explodes
+  -11% → -67% at 2x. The blend's return premium over the borrow rate is ~zero — its
+  high Sharpe is a low-vol Sharpe, not a high-return one. Vol-targeting was even worse
+  (levers up when the premium is thinnest). Leveraged ETFs (cheaper financing) net
+  ~+1.4%/yr for ~-40% DD paths — not taken. **Capital, not leverage, is the lever.**
+- **Evidence:** `quant/research/experiments/2026_003_leverage_overlay/` (findings.md).
+
 ## PEAD as a 4th sleeve (Post-Earnings Announcement Drift)
 - **Status:** BENCHED (real edge, redundant slot) — NOT a dead idea
 - **Date:** 2026-07-06
