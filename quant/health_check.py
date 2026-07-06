@@ -30,13 +30,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "strategies"))
 # Reuse the runners' helpers + config (single source of truth)
 from meanrev_runner import _env, _alpaca, discord, OUR_NAMES
 from live_runner import ALL, to_alpaca
+import ownership
 
-# The split is dynamic now; fetch the CURRENT budgets so alarms track the real caps.
+# The split is dynamic (3-way now); fetch CURRENT budgets so alarms track real caps.
 try:
     import dynamic_budget
-    BRAIN_BUDGET, MEANREV_BUDGET, _ = dynamic_budget.compute_split()
+    BRAIN_BUDGET, MEANREV_BUDGET, LOWVOL_BUDGET, _ = dynamic_budget.compute_split3()
 except Exception:
-    BRAIN_BUDGET, MEANREV_BUDGET = 0.70, 0.30
+    BRAIN_BUDGET, MEANREV_BUDGET, LOWVOL_BUDGET = 0.60, 0.25, 0.15
 
 BRAIN_SYMBOLS = set(to_alpaca(s) for s in ALL)
 DRIFT_TOL = 0.08        # alert if a bot's share is off its target by > 8 percentage pts
@@ -64,18 +65,25 @@ def main():
     day_pct = (equity / last_equity - 1) if last_equity else 0.0
 
     positions = _alpaca(env, "GET", "/v2/positions") or []
+    # Both mean-rev and low-vol hold STOCK_UNIVERSE names — split them by the
+    # ownership ledger (falls back to all-stocks-as-mrev if the ledger is empty).
+    lowvol_syms = ownership.owned_symbols("lowvol")
     brain = [p for p in positions if p["symbol"] in BRAIN_SYMBOLS]
-    mrev  = [p for p in positions if p["symbol"] in OUR_NAMES]
+    lvol  = [p for p in positions if p["symbol"] in lowvol_syms]
+    mrev  = [p for p in positions if p["symbol"] in OUR_NAMES and p["symbol"] not in lowvol_syms]
     other = [p for p in positions if p["symbol"] not in BRAIN_SYMBOLS and p["symbol"] not in OUR_NAMES]
 
     bsum = sum(float(p["market_value"]) for p in brain)
     msum = sum(float(p["market_value"]) for p in mrev)
+    lsum = sum(float(p["market_value"]) for p in lvol)
     osum = sum(float(p["market_value"]) for p in other)
     b_share = bsum / equity if equity else 0.0
     m_share = msum / equity if equity else 0.0
+    l_share = lsum / equity if equity else 0.0
 
     b_upl = sum(float(p["unrealized_pl"]) for p in brain)
     m_upl = sum(float(p["unrealized_pl"]) for p in mrev)
+    l_upl = sum(float(p["unrealized_pl"]) for p in lvol)
 
     # --- scan today's orders for failures ---
     today = dt.datetime.now(dt.UTC).date().isoformat()
@@ -95,6 +103,13 @@ def main():
         alarms.append(f"⚠ mean-rev OVER budget: {m_share*100:.0f}% vs {MEANREV_BUDGET*100:.0f}% cap")
     if b_share > BRAIN_BUDGET + DRIFT_TOL:
         alarms.append(f"⚠ brain OVER budget: {b_share*100:.0f}% vs {BRAIN_BUDGET*100:.0f}% cap")
+    if l_share > LOWVOL_BUDGET + DRIFT_TOL:
+        alarms.append(f"⚠ low-vol OVER budget: {l_share*100:.0f}% vs {LOWVOL_BUDGET*100:.0f}% cap")
+    # ledger reconciliation: every low-vol ledger symbol should be an actual position
+    _held_syms = {p["symbol"] for p in positions}
+    _missing = [s for s in lowvol_syms if s not in _held_syms]
+    if _missing:
+        alarms.append(f"⚠ low-vol ledger names not held: {', '.join(_missing[:8])} (reconcile)")
     if osum > 0.01 * equity:
         names = ", ".join(p["symbol"] for p in other[:8])
         alarms.append(f"⚠ UNOWNED positions ({osum/equity*100:.0f}% of acct): {names}")
@@ -119,7 +134,8 @@ def main():
         f"Equity **${equity:,.0f}**  |  today {day_pl:+,.0f} ({day_pct*100:+.2f}%)  |  cash ${cash:,.0f}\n"
         f"🤖 Brain:    {b_share*100:.0f}% (cap {BRAIN_BUDGET*100:.0f}%)  |  {len(brain)} pos  |  uPL {b_upl:+,.0f}\n"
         f"🔁 Mean-rev: {m_share*100:.0f}% (cap {MEANREV_BUDGET*100:.0f}%)  |  {len(mrev)} pos  |  uPL {m_upl:+,.0f}\n"
-        f"   names: {mrev_names}\n"
+        f"🐢 Low-vol:  {l_share*100:.0f}% (cap {LOWVOL_BUDGET*100:.0f}%)  |  {len(lvol)} pos  |  uPL {l_upl:+,.0f}\n"
+        f"   mrev: {mrev_names}\n"
         f"Regime: {regime}  |  orders today: {len(filled_today)} filled, {len(failed)} failed"
     )
     if alarms:

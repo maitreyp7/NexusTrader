@@ -123,7 +123,7 @@ function Overview({ data, go }: { data: QuantData; go: (v: View) => void }) {
   return (
     <>
       <h2 className="text-2xl font-bold text-white mb-1" style={{ fontFamily: 'Inter' }}>Overview</h2>
-      <p className="text-sm mb-6" style={{ color: DIM }}>Your two trading bots, live. The Brain follows trends in ETFs &amp; crypto; Mean-rev buys oversold stocks for a quick bounce.</p>
+      <p className="text-sm mb-6" style={{ color: DIM }}>Your trading bots, live. Brain follows trends in ETFs &amp; crypto; Mean-rev buys oversold stocks for a quick bounce; Low-vol holds the calmest defensive names.</p>
 
       {/* Hero */}
       <div className="glass rounded-2xl p-7 mb-5" style={{ borderColor: up ? `${GREEN}1f` : `${RED}1f` }}>
@@ -161,7 +161,9 @@ function Overview({ data, go }: { data: QuantData; go: (v: View) => void }) {
 // ── Bot summary card (clickable → detail) ────────────────────────────────────
 function BotSummaryCard({ bot, onClick }: { bot: Bot; onClick: () => void }) {
   const isBrain = bot.name === 'Brain';
-  const accent = isBrain ? BLUE : PURPLE;
+  const isLowvol = bot.name === 'Low-vol';
+  const accent = isBrain ? BLUE : isLowvol ? GREEN : PURPLE;
+  const desc = isBrain ? 'ETF + crypto trend' : isLowvol ? 'low-volatility defensive' : 'oversold-stock bounce';
   const sharePct = bot.share * 100, capPct = bot.budgetCap * 100;
   const upl = bot.unrealizedPnL >= 0;
   return (
@@ -173,7 +175,7 @@ function BotSummaryCard({ bot, onClick }: { bot: Bot; onClick: () => void }) {
           </div>
           <div>
             <div className="font-bold text-white" style={{ fontFamily: 'Inter' }}>{bot.name}</div>
-            <div className="text-xs mono" style={{ color: DIM }}>{isBrain ? 'ETF + crypto trend' : 'oversold-stock bounce'}</div>
+            <div className="text-xs mono" style={{ color: DIM }}>{desc}</div>
           </div>
         </div>
         <div className="text-right">

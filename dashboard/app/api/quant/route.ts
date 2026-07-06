@@ -1,4 +1,20 @@
 import { NextResponse } from 'next/server';
+import { readFileSync } from 'fs';
+import path from 'path';
+
+// Read the shared ownership ledger to split the stock universe between mean-rev and
+// low-vol (both trade STOCK_UNIVERSE). Empty/missing → all stocks count as mean-rev
+// (matches pre-low-vol behavior). Best-effort; never throws.
+function lowvolLedgerSymbols(): Set<string> {
+  for (const p of ['/opt/nexustrader/quant-bot/ownership.json',
+                   path.join(process.cwd(), '..', 'quant', 'ownership.json')]) {
+    try {
+      const d = JSON.parse(readFileSync(p, 'utf8'));
+      return new Set(Object.keys(d.lowvol ?? {}).filter(s => Math.abs(Number(d.lowvol[s])) > 1e-9));
+    } catch { /* try next path */ }
+  }
+  return new Set();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/quant — single source of truth for the two-bot quant system view.
@@ -132,8 +148,11 @@ export async function GET() {
     const rawPos = (posRes.ok ? await posRes.json() : []) as AlpacaPosition[];
     const positions = Array.isArray(rawPos) ? rawPos : [];
 
-    function buildBot(name: string, symbols: Set<string>, cap: number): BotView {
-      const mine = positions.filter(p => symbols.has(p.symbol));
+    const lowvolSyms = lowvolLedgerSymbols();
+
+    function buildBot(name: string, symbols: Set<string>, cap: number,
+                      predicate?: (sym: string) => boolean): BotView {
+      const mine = positions.filter(p => (predicate ? predicate(p.symbol) : symbols.has(p.symbol)));
       const marketValue   = mine.reduce((s, p) => s + parseFloat(p.market_value), 0);
       const unrealizedPnL = mine.reduce((s, p) => s + parseFloat(p.unrealized_pl), 0);
       return {
@@ -153,9 +172,14 @@ export async function GET() {
     }
 
     const brain   = buildBot('Brain',   BRAIN_SYMBOLS,   BRAIN_BUDGET);
-    const meanrev = buildBot('Mean-rev', MEANREV_SYMBOLS, MEANREV_BUDGET);
+    // Split the shared stock universe by the ledger: low-vol = its ledger names,
+    // mean-rev = the rest of STOCK_UNIVERSE.
+    const meanrev = buildBot('Mean-rev', MEANREV_SYMBOLS, MEANREV_BUDGET,
+                             s => MEANREV_SYMBOLS.has(s) && !lowvolSyms.has(s));
+    const lowvol  = buildBot('Low-vol',  MEANREV_SYMBOLS, 0.15,
+                             s => lowvolSyms.has(s));
 
-    // Anything owned by neither bot — should be empty; surface it if not.
+    // Anything owned by no bot — should be empty; surface it if not.
     const other = positions.filter(p => !BRAIN_SYMBOLS.has(p.symbol) && !MEANREV_SYMBOLS.has(p.symbol));
     const otherValue = other.reduce((s, p) => s + parseFloat(p.market_value), 0);
 
@@ -170,8 +194,8 @@ export async function GET() {
 
     return NextResponse.json({
       equity, cash, dayPnL, dayPnLPct,
-      invested: brain.marketValue + meanrev.marketValue,
-      bots: [brain, meanrev],
+      invested: brain.marketValue + meanrev.marketValue + lowvol.marketValue,
+      bots: [brain, meanrev, lowvol],
       other: { value: Math.round(otherValue * 100) / 100, symbols: other.map(p => p.symbol) },
       equityHistory,
       regime,
