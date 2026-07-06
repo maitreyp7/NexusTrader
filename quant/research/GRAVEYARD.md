@@ -72,16 +72,23 @@ To add an entry, run `python graveyard.py add` or append below following the for
 - **Why rejected:** 14-28% win rate, the sole consumer of the unvalidated market-lens pipeline.
   Sentiment/news as a primary BUY trigger never validated. Sole net loser of the old system.
 
+## PEAD as a 4th sleeve (Post-Earnings Announcement Drift)
+- **Status:** BENCHED (real edge, redundant slot) — NOT a dead idea
+- **Date:** 2026-07-06
+- **What:** Long stocks that beat earnings + got a positive reaction day; hold ~20d.
+- **Why benched:** The "needs paid data" block was WRONG — yfinance `get_earnings_dates()`
+  gives ~24yr of dates + surprise free. Validated standalone: **PAPER_TRADE** (Sharpe 0.70,
+  9/9 eras, no decay — recent half is STRONGER). But it correlates **0.601 to low-vol** and
+  every blend including both is worse than the planned 60/25/15-lowvol system. Same slot,
+  weaker occupant. **If low-vol fails live, deploy PEAD in its place — it's ready.**
+- **Evidence:** `quant/research/experiments/2026_002_pead_drift/` (report, blend test,
+  cached earnings data, runnable strategy).
+
 ---
 
 ## STILL OPEN (real edges, blocked on data — NOT rejected)
 
 These passed research interest but need paid data to validate properly. Don't re-research
 from scratch — pick up here when data is available.
-
-- **Post-Earnings Announcement Drift (PEAD)** — gap-proxy test showed +3.8% over 20d (stronger
-  on volatile names). Real edge, ~70-75% likely still alive. **Needs:** real earnings calendar
-  (~$22-30/mo, e.g. Financial Modeling Prep) + delisted-inclusive prices to kill survivorship
-  bias (Polygon ~$30/mo). Evidence: `quant/spike_research.py`, `quant/validate_drift.py`.
 - **Gamma/dealer-hedging, analyst revisions, order flow** — real institutional edges, all need
   paid data we don't have. Documented, untested.
