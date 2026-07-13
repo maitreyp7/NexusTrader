@@ -260,8 +260,11 @@ def run(live: bool = False):
                 log(f"   closed: {asym} (full) -> id {(res or {}).get('id','?')[:8]}")
                 placed.append(f"  CLOSE {asym}")
             else:
+                # Crypto (/USD) rejects time_in_force "day" with HTTP 422 — it only
+                # accepts gtc/ioc. ETFs use day. Pick per asset class.
+                tif = "gtc" if asym.endswith("/USD") else "day"
                 body = {"symbol": asym, "side": side, "type": "market",
-                        "time_in_force": "day", "notional": str(notional)}
+                        "time_in_force": tif, "notional": str(notional)}
                 res = _alpaca(env, "POST", "/v2/orders", body)
                 log(f"   placed: {side} {asym} ${notional} -> id {res.get('id','?')[:8]}")
                 placed.append(f"  {side.upper()} {asym} ${notional:,.0f}")

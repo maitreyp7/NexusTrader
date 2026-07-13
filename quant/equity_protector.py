@@ -37,6 +37,17 @@ WARN_DD = 0.08    # -8%  → warn only
 KILL_DD = 0.15    # -15% → liquidate + halt
 CONSECUTIVE_BAD_NEEDED = 2   # require 2 bad reads in a row before killing
 
+# Data-sanity gate. A daily-bar portfolio physically cannot move this much between
+# two ~20-min reads; a jump larger than this is an Alpaca data glitch (e.g. positions
+# briefly dropping out of the equity field), NOT a real loss. We refuse to act on it.
+# This is what a -55% false read on 2026-07-07 exposed: the "2 consecutive reads"
+# guard failed because the glitch lasted 40 min, spanning both reads.
+MAX_PLAUSIBLE_INTERVAL_DROP = 0.20   # >20% drop vs last good read = impossible → ignore
+# Equity must roughly reconcile with cash + net position value. If Alpaca's `equity`
+# collapses toward cash-only (positions missing) while cash is unchanged, the two
+# disagree and we treat the reading as corrupt.
+RECONCILE_TOLERANCE = 0.10           # allow 10% slop before calling it inconsistent
+
 HERE        = os.path.dirname(__file__)
 STATE_FILE  = os.path.join(HERE, "protector_state.json")
 KILL_SWITCH = os.path.join(HERE, "KILL_SWITCH.json")
@@ -56,7 +67,7 @@ def load_state() -> dict:
             return json.load(open(STATE_FILE))
         except Exception:
             pass
-    return {"high_water": 0.0, "consecutive_bad": 0, "warned": False}
+    return {"high_water": 0.0, "consecutive_bad": 0, "warned": False, "last_good_equity": 0.0}
 
 
 def save_state(s: dict):
@@ -101,6 +112,35 @@ def main():
     equity = float(acct["equity"])
 
     state = load_state()
+
+    # ── DATA-SANITY GATE (runs BEFORE any drawdown/kill logic) ──────────────
+    # Reject readings that are physically impossible or internally inconsistent.
+    # A false -55% read (positions briefly missing from `equity`) tripped the kill
+    # on 2026-07-07 and liquidated the book. Never act on a corrupt number.
+    cash = float(acct.get("cash", 0) or 0)
+    long_mv = float(acct.get("long_market_value", 0) or 0)
+    short_mv = float(acct.get("short_market_value", 0) or 0)
+    reconciled = cash + long_mv + short_mv   # what equity SHOULD be
+    last_good = state.get("last_good_equity", 0.0)
+
+    bad_reasons = []
+    # (a) equity disagrees with cash + positions → positions dropped out of the field
+    if reconciled > 0 and abs(equity - reconciled) / reconciled > RECONCILE_TOLERANCE:
+        bad_reasons.append(f"equity ${equity:,.0f} != cash+positions ${reconciled:,.0f}")
+    # (b) impossibly large drop vs the last good read (not a market move, a glitch)
+    if last_good > 0 and (equity / last_good - 1) < -MAX_PLAUSIBLE_INTERVAL_DROP:
+        bad_reasons.append(f"dropped {(equity/last_good-1)*100:.0f}% vs last good ${last_good:,.0f}")
+
+    if bad_reasons:
+        log(f"⚠ IGNORING corrupt equity read ${equity:,.2f}: {'; '.join(bad_reasons)}. "
+            f"No action taken (this is the false-kill guard).")
+        # Do NOT update high_water/last_good from a bad read; do NOT touch consecutive_bad.
+        save_state(state)
+        return
+
+    # Reading passed the sanity gate — it's trustworthy.
+    state["last_good_equity"] = equity
+
     hw = max(state.get("high_water", 0.0), equity)   # high-water mark only ratchets up
     dd = (equity / hw - 1) if hw > 0 else 0.0         # current drawdown from peak (<= 0)
 
