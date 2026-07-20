@@ -201,7 +201,15 @@ def run(live: bool = False):
         tgt = target_dollars.get(sym, 0.0)
         cur = current.get(sym, 0.0)
         diff = round(tgt - cur, 2)
-        if abs(diff) < max(25.0, 0.005 * budget):   # ignore tiny drifts
+        # NO-CHURN BAND. mean-rev is signal-driven (enter oversold, exit on RSI/time),
+        # NOT a continuous weight-rebalancer. If a name is already held AND still wanted
+        # (tgt>0 and cur>0), do NOT re-trade it just because its dollar weight drifted a
+        # few % on price moves — that churn cost ~15 fills/day (8-10x the backtest rate)
+        # and bled spread daily. Only true ENTRIES (cur~0) and EXITS (tgt~0) trade; a
+        # held position is left alone unless it drifts absurdly (>25% of its target).
+        held_and_wanted = tgt > 1.0 and cur > 1.0
+        min_trade = (0.25 * tgt) if held_and_wanted else max(25.0, 0.005 * budget)
+        if abs(diff) < min_trade:   # ignore drift on held names; still act on entry/exit
             continue
         # Full exit: target is ~0 but we still hold shares -> liquidate via close endpoint.
         if tgt < 1.0 and held_qty.get(sym, 0.0) > 0:
