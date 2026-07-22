@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "strategies"))
 
 # Reuse the runners' helpers + config (single source of truth)
 from meanrev_runner import _env, _alpaca, discord, OUR_NAMES
-from live_runner import ALL, to_alpaca
+from live_runner import ALL, to_alpaca, canon
 import ownership
 
 # The split is dynamic (3-way now); fetch CURRENT budgets so alarms track real caps.
@@ -39,7 +39,9 @@ try:
 except Exception:
     BRAIN_BUDGET, MEANREV_BUDGET, LOWVOL_BUDGET = 0.60, 0.25, 0.15
 
-BRAIN_SYMBOLS = set(to_alpaca(s) for s in ALL)
+# Canonical (slashless) brain symbols — so crypto reported as "BTCUSD" matches the
+# brain's "BTC/USD" universe (otherwise crypto looked "unowned" → false alarms).
+BRAIN_SYMBOLS = set(canon(to_alpaca(s)) for s in ALL)
 DRIFT_TOL = 0.08        # alert if a bot's share is off its target by > 8 percentage pts
 DAY_LOSS_ALERT = -0.03  # informational flag if account down > 3% on the day
 
@@ -68,10 +70,12 @@ def main():
     # Both mean-rev and low-vol hold STOCK_UNIVERSE names — split them by the
     # ownership ledger (falls back to all-stocks-as-mrev if the ledger is empty).
     lowvol_syms = ownership.owned_symbols("lowvol")
-    brain = [p for p in positions if p["symbol"] in BRAIN_SYMBOLS]
+    # Match brain (incl. crypto) on canonical form; stocks match directly.
+    brain = [p for p in positions if canon(p["symbol"]) in BRAIN_SYMBOLS]
     lvol  = [p for p in positions if p["symbol"] in lowvol_syms]
     mrev  = [p for p in positions if p["symbol"] in OUR_NAMES and p["symbol"] not in lowvol_syms]
-    other = [p for p in positions if p["symbol"] not in BRAIN_SYMBOLS and p["symbol"] not in OUR_NAMES]
+    other = [p for p in positions if canon(p["symbol"]) not in BRAIN_SYMBOLS
+             and p["symbol"] not in OUR_NAMES]
 
     bsum = sum(float(p["market_value"]) for p in brain)
     msum = sum(float(p["market_value"]) for p in mrev)

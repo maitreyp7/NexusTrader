@@ -33,9 +33,17 @@ from engine import build_price_panel, run_backtest
 import trend, crypto_trend, flow, allocator
 
 # ── Universe + Alpaca symbol mapping ────────────────────────────────────────
-# Yahoo uses BTC-USD; Alpaca crypto uses BTC/USD. ETFs are the same.
+# Yahoo uses BTC-USD; Alpaca crypto uses BTC/USD for ORDERS. ETFs are the same.
 def to_alpaca(sym: str) -> str:
     return sym.replace("-USD", "/USD") if sym.endswith("-USD") else sym
+
+
+# CRITICAL: Alpaca ORDERS take "BTC/USD" but POSITIONS are REPORTED as "BTCUSD"
+# (no slash). Matching held positions against the slash form silently failed —
+# the brain never saw its own crypto, re-bought it daily, and ran the account into
+# negative cash + $79k crypto. Canonicalize BOTH forms to slashless for matching.
+def canon(sym: str) -> str:
+    return sym.replace("/", "").replace("-USD", "USD")
 
 ALL = sorted(set(ALL_SYMBOLS) | set(CRYPTO_UNIVERSE))
 LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
@@ -191,17 +199,21 @@ def run(live: bool = False):
     log(f"Account equity: ${equity:,.2f}  | brain budget ({brain_budget_frac*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
 
     # Only count OUR universe's positions (ignore the mean-rev bot's single-stock holdings).
-    our_symbols = set(to_alpaca(s) for s in ALL)
+    # Match on the CANONICAL (slashless) form so crypto positions reported as "BTCUSD"
+    # match our "BTC/USD" targets — otherwise the brain never sees its own crypto and
+    # re-buys it every day (the bug that drove the account to negative cash).
+    our_canon = set(canon(to_alpaca(s)) for s in ALL)
     positions = _alpaca(env, "GET", "/v2/positions") or []
-    current = {p["symbol"]: float(p["market_value"]) for p in positions if p["symbol"] in our_symbols}
-    held_qty = {p["symbol"]: float(p["qty"]) for p in positions if p["symbol"] in our_symbols}
+    # keep the Alpaca-reported symbol as the key (orders/close use canon->slash below)
+    current = {p["symbol"]: float(p["market_value"]) for p in positions if canon(p["symbol"]) in our_canon}
+    held_qty = {p["symbol"]: float(p["qty"]) for p in positions if canon(p["symbol"]) in our_canon}
 
     # DOUBLE-BUY GUARD: fold OPEN (unfilled) orders into current exposure so a second
     # run before fills don't re-order. (Same fix as meanrev_runner.)
     open_orders = _alpaca(env, "GET", "/v2/orders?status=open&limit=200") or []
     for o in open_orders:
         sym = o.get("symbol")
-        if sym not in our_symbols:
+        if canon(sym) not in our_canon:
             continue
         notion = o.get("notional")
         if notion is None:
@@ -213,21 +225,29 @@ def run(live: bool = False):
     log(f"Current positions (filled + pending): {current if current else '(none)'}")
 
     # Build target $ per symbol (weight * brain budget); compute orders as the difference.
+    # Everything is matched on the CANONICAL (slashless) key so held crypto (BTCUSD)
+    # lines up with its target (BTC/USD). Orders are placed in the slash order-form.
     orders = []
-    target_alp = {to_alpaca(s): w for s, w in targets.items()}
+    target_by_canon = {canon(to_alpaca(s)): (to_alpaca(s), w) for s, w in targets.items()}
+    current_by_canon = {canon(k): v for k, v in current.items()}
+    heldqty_by_canon = {canon(k): v for k, v in held_qty.items()}
+    all_canon = set(target_by_canon) | set(current_by_canon)
 
-    for asym in sorted(our_symbols):
-        tgt_dollars = target_alp.get(asym, 0.0) * budget
-        cur_dollars = current.get(asym, 0.0)
+    for c in sorted(all_canon):
+        order_sym, w = target_by_canon.get(c, (None, 0.0))
+        if order_sym is None:                          # held but not a current target
+            order_sym = to_alpaca(c.replace("USD", "-USD")) if c.endswith("USD") else c
+        tgt_dollars = w * budget
+        cur_dollars = current_by_canon.get(c, 0.0)
         diff = round(tgt_dollars - cur_dollars, 2)
         if abs(diff) < max(25.0, 0.01 * budget):    # ignore tiny drifts
             continue
         # Full exit of a (possibly fractional) position -> use the close endpoint, since
         # a notional sell on a fractional position returns 403 Forbidden.
-        if tgt_dollars < 1.0 and held_qty.get(asym, 0.0) > 0:
-            orders.append((asym, "sell", cur_dollars, True))
+        if tgt_dollars < 1.0 and heldqty_by_canon.get(c, 0.0) > 0:
+            orders.append((order_sym, "sell", cur_dollars, True))
         else:
-            orders.append((asym, "buy" if diff > 0 else "sell", abs(diff), False))
+            orders.append((order_sym, "buy" if diff > 0 else "sell", abs(diff), False))
 
     # CRITICAL isolation note: we only ever generate orders for OUR symbols.
     # Anything else in the account is never touched.
@@ -256,7 +276,10 @@ def run(live: bool = False):
     for asym, side, notional, close_full in orders:
         try:
             if close_full:
-                res = _alpaca(env, "DELETE", f"/v2/positions/{asym}")
+                # The close-position URL takes the REPORTED symbol (slashless for
+                # crypto: BTCUSD, not BTC/USD) — the slash form 404s.
+                close_sym = asym.replace("/", "")
+                res = _alpaca(env, "DELETE", f"/v2/positions/{close_sym}")
                 log(f"   closed: {asym} (full) -> id {(res or {}).get('id','?')[:8]}")
                 placed.append(f"  CLOSE {asym}")
             else:

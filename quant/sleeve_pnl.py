@@ -18,10 +18,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "strategies"))
 
 from meanrev_runner import _env, _alpaca, discord, OUR_NAMES
-from live_runner import ALL, to_alpaca
+from live_runner import ALL, to_alpaca, canon
 import ownership
 
-BRAIN_SYMBOLS = set(to_alpaca(s) for s in ALL)
+BRAIN_SYMBOLS = set(canon(to_alpaca(s)) for s in ALL)
 LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
 PNL_LOG = os.path.join(LOG_DIR, "sleeve_pnl.jsonl")
 
@@ -32,7 +32,7 @@ DRIFT_ALERT_SHARPE = 0.0     # alert if a sleeve's live rolling Sharpe drops bel
 
 
 def classify(sym: str, lowvol_syms: set) -> str:
-    if sym in BRAIN_SYMBOLS:
+    if canon(sym) in BRAIN_SYMBOLS:
         return "brain"
     if sym in lowvol_syms:
         return "lowvol"
