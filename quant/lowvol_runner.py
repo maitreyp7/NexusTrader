@@ -143,6 +143,11 @@ def run(live: bool = False):
         lowvol_frac = LOWVOL_BUDGET
         log(f"[budget] split3 failed, using {LOWVOL_BUDGET*100:.0f}%: {str(e)[:80]}")
     budget = equity * lowvol_frac
+    import ownership as _own
+    _mult = _own.budget_multiplier("lowvol")
+    if _mult < 1.0:
+        budget *= _mult
+        log(f"CIRCUIT BREAKER: low-vol budget x{_mult} -> ${budget:,.2f}")
     log(f"Account equity: ${equity:,.2f}  | low-vol budget ({lowvol_frac*100:.0f}%): ${budget:,.2f}")
 
     # CURRENT = only symbols in OUR ledger section (NOT symbol-membership — mean-rev

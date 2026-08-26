@@ -155,6 +155,11 @@ def run(live: bool = False):
         meanrev_frac = 0.25
         log(f"[budget] split3 failed, using 25%: {str(e)[:80]}")
     budget = equity * meanrev_frac
+    import ownership as _own
+    _mult = _own.budget_multiplier("mrev")
+    if _mult < 1.0:
+        budget *= _mult
+        log(f"CIRCUIT BREAKER: mean-rev budget x{_mult} -> ${budget:,.2f}")
     log(f"Account equity: ${equity:,.2f}  | mean-rev budget ({meanrev_frac*100:.0f}%): ${budget:,.2f}")
 
     # Current positions — ONLY our universe, AND excluding shares the low-vol bot

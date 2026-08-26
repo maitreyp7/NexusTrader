@@ -82,6 +82,12 @@ To add an entry, run `python graveyard.py add` or append below following the for
   high Sharpe is a low-vol Sharpe, not a high-return one. Vol-targeting was even worse
   (levers up when the premium is thinnest). Leveraged ETFs (cheaper financing) net
   ~+1.4%/yr for ~-40% DD paths — not taken. **Capital, not leverage, is the lever.**
+- **Re-test 2026-08-26 (trend-gated leveraged ETF):** After research suggested a
+  200-day-trend-gated 2x-SSO sleeve could beat SPY, tested it: CAGR rises nicely
+  (+8.2% → +14.1%) BUT Sharpe is FLAT (0.72 → 0.68) and drawdown climbs back to
+  −40 to −52% (the trend filter's whole benefit was the −29% DD). Confirms: leverage
+  even in its smartest (trend-gated) form is a pure RISK dial, not an edge — Sharpe
+  doesn't budge. Same verdict, now closed for the ETF form too.
 - **Evidence:** `quant/research/experiments/2026_003_leverage_overlay/` (findings.md).
 
 ## PEAD as a 4th sleeve (Post-Earnings Announcement Drift)

@@ -196,6 +196,13 @@ def run(live: bool = False):
         brain_budget_frac = 0.60
         log(f"[budget] split3 failed, using 60%: {str(e)[:80]}")
     budget = equity * brain_budget_frac   # brain manages only its slice; mean-rev bot owns the rest
+    # Sleeve circuit breaker: if the brain drew down past a hard threshold, obey the
+    # override (0.5 halved / 0.0 cut) written by sleeve_breaker.py.
+    import ownership as _own
+    _bmult = _own.budget_multiplier("brain")
+    if _bmult < 1.0:
+        budget *= _bmult
+        log(f"CIRCUIT BREAKER: brain budget x{_bmult} -> ${budget:,.2f}")
     log(f"Account equity: ${equity:,.2f}  | brain budget ({brain_budget_frac*100:.0f}%): ${budget:,.2f}  | cash: ${float(acct['cash']):,.2f}")
 
     # Only count OUR universe's positions (ignore the mean-rev bot's single-stock holdings).
@@ -223,6 +230,21 @@ def run(live: bool = False):
         notion = float(notion or 0)
         current[sym] = current.get(sym, 0.0) + (notion if o.get("side") == "buy" else -notion)
     log(f"Current positions (filled + pending): {current if current else '(none)'}")
+
+    # HARD CRYPTO CAP (safety, not strategy). Crypto is the highest-vol sleeve and a
+    # symbol-format bug once let it re-buy daily to 79% of the account. Cap total crypto
+    # target at CRYPTO_MAX_FRAC of TOTAL equity, scaling down each coin proportionally if
+    # the strategy ever asks for more. This is belt-and-suspenders on top of the fix.
+    CRYPTO_MAX_FRAC = 0.15
+    crypto_tgt = {s: w for s, w in targets.items() if to_alpaca(s).endswith("/USD")}
+    crypto_total = sum(w for w in crypto_tgt.values()) * budget
+    crypto_ceiling = CRYPTO_MAX_FRAC * equity
+    if crypto_total > crypto_ceiling and crypto_total > 0:
+        scale = crypto_ceiling / crypto_total
+        for s in crypto_tgt:
+            targets[s] *= scale
+        log(f"CRYPTO CAP: scaled crypto {scale:.2f}x "
+            f"(${crypto_total:,.0f} -> ${crypto_ceiling:,.0f}, {CRYPTO_MAX_FRAC*100:.0f}% of equity)")
 
     # Build target $ per symbol (weight * brain budget); compute orders as the difference.
     # Everything is matched on the CANONICAL (slashless) key so held crypto (BTCUSD)

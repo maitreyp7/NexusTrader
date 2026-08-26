@@ -69,3 +69,18 @@ def _atomic_write(d: dict) -> None:
         try: os.unlink(tmp)
         except Exception: pass
         raise
+
+
+# ── Sleeve circuit-breaker overrides (written by sleeve_breaker.py) ───────────
+_OVERRIDES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sleeve_overrides.json")
+
+
+def budget_multiplier(sleeve: str) -> float:
+    """Return the circuit breaker's budget multiplier for a sleeve (1.0 = full,
+    0.5 = halved, 0.0 = cut). Missing/unreadable file → 1.0 (no worse than before)."""
+    try:
+        with open(_OVERRIDES) as f:
+            m = json.load(f).get(sleeve, 1.0)
+        return float(m) if 0.0 <= float(m) <= 1.0 else 1.0
+    except Exception:
+        return 1.0
