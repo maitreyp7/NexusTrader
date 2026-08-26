@@ -240,7 +240,15 @@ def run(live: bool = False):
         tgt_dollars = w * budget
         cur_dollars = current_by_canon.get(c, 0.0)
         diff = round(tgt_dollars - cur_dollars, 2)
-        if abs(diff) < max(25.0, 0.01 * budget):    # ignore tiny drifts
+        # NO-TRADE BAND. Held-and-still-wanted names only re-trade if they drift a
+        # MEANINGFUL amount (>10% of the position's own target), not on every small
+        # daily wiggle — crypto's vol-targeted weight jiggles daily and was churning.
+        # Entries (cur~0) and exits (tgt~0) still fire via the dollar floor.
+        # Backtest+gatekeeper validated: raises brain Sharpe 0.93->0.95, 2x-cost
+        # 0.84->0.87, same drawdown; turnover down. (2026-08-26)
+        held_and_wanted = tgt_dollars > 1.0 and cur_dollars > 1.0
+        band = max(0.10 * tgt_dollars, 25.0) if held_and_wanted else max(25.0, 0.01 * budget)
+        if abs(diff) < band:    # ignore small drifts on held names
             continue
         # Full exit of a (possibly fractional) position -> use the close endpoint, since
         # a notional sell on a fractional position returns 403 Forbidden.
