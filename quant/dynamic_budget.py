@@ -48,7 +48,9 @@ def _bot_return_streams() -> tuple[pd.Series, pd.Series]:
     bw = allocator.apply_regime_gate(bw, vix.reindex(bw.index).ffill(), vix3m.reindex(bw.index).ffill())
     brain_r = run_backtest(etf, bw)["returns"]
 
-    mr_params = dict(entry_rsi=5, exit_rsi=60, hold_max=10, max_names=10, max_weight=0.10)
+    # Use the SAME params the live runner trades (single source of truth) so the
+    # performance-tilt reflects reality and can't drift out of sync.
+    from meanrev_runner import PARAMS as mr_params
     mr_r = run_backtest(stk, name_meanrev.strategy(stk, **mr_params))["returns"]
     return brain_r, mr_r
 

@@ -44,7 +44,13 @@ MEANREV_BUDGET = 0.30        # neutral fallback (30% of equity to the mean-rev b
 MAX_PER_NAME   = 0.10        # never more than 10% of equity in one name
 
 # Validated param set (most robust in the hunt)
-PARAMS = dict(entry_rsi=5, exit_rsi=60, hold_max=10, max_names=10, max_weight=0.10)
+# QUALITY-OVER-QUANTITY params (validated 2026-08-26, gatekeeper PRODUCTION_CANDIDATE):
+# deeper oversold entry + patient exit + longer hold = fewer, higher-conviction trades.
+# vs the prior set this raised Sharpe 0.81->1.08, 2x-cost Sharpe 0.56->0.91 (the churn
+# was eating the edge), CAGR +10.8->+12.4%, and halved max drawdown (-54->-30%).
+# Turnover ~117x->63x/yr. Win rate stays ~50% — the gain is less cost drag, NOT better
+# forecasting (we can't pick winners; the edge is win-size asymmetry across many trades).
+PARAMS = dict(entry_rsi=5, exit_rsi=70, hold_max=20, max_names=8, max_weight=0.10)
 
 LOG_DIR = os.path.join(os.path.dirname(__file__), "live_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
