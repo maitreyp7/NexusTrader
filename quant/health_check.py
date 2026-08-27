@@ -109,9 +109,14 @@ def main():
         alarms.append(f"⚠ brain OVER budget: {b_share*100:.0f}% vs {BRAIN_BUDGET*100:.0f}% cap")
     if l_share > LOWVOL_BUDGET + DRIFT_TOL:
         alarms.append(f"⚠ low-vol OVER budget: {l_share*100:.0f}% vs {LOWVOL_BUDGET*100:.0f}% cap")
-    # ledger reconciliation: every low-vol ledger symbol should be an actual position
+    # ledger reconciliation: a low-vol ledger name should become a real position once
+    # its buy fills. Fresh claims use a tiny placeholder qty (~1e-6) until fills settle
+    # at the next open — those are EXPECTED to be "not held yet", so don't alarm on them.
+    # Only warn if a name with a REAL claimed qty is missing (a true desync).
     _held_syms = {p["symbol"] for p in positions}
-    _missing = [s for s in lowvol_syms if s not in _held_syms]
+    _lowvol_ledger = ownership.owned_by("lowvol") if hasattr(ownership, "owned_by") else {}
+    _missing = [s for s in lowvol_syms
+                if s not in _held_syms and float(_lowvol_ledger.get(s, 0)) > 1e-4]
     if _missing:
         alarms.append(f"⚠ low-vol ledger names not held: {', '.join(_missing[:8])} (reconcile)")
     if osum > 0.01 * equity:
