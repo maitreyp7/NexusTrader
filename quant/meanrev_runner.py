@@ -166,7 +166,7 @@ def run(live: bool = False):
     # owns (per the ownership ledger). Without this, mean-rev would count low-vol's
     # shares as its own and could liquidate them on exit (the June 9 collision bug
     # class). Defensive: empty ledger → old behavior, no worse than before.
-    lowvol_owned = ownership.owned_symbols("meanrev")   # = low-vol's ledger symbols
+    lowvol_owned = ownership.owned_symbols("lowvol")   # low-vol's claimed names — hands off
     if lowvol_owned:
         log(f"Ignoring {len(lowvol_owned)} low-vol-owned names (ledger): {sorted(lowvol_owned)}")
     tradable = OUR_NAMES - lowvol_owned

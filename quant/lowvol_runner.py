@@ -246,16 +246,24 @@ def run(live: bool = False):
 
 
 def _sync_ledger(env, targets, held_qty, live: bool):
-    """After trading, record what low-vol now owns so mean-rev leaves it alone.
-    Re-reads live positions for the target names to capture actual filled qty."""
+    """After trading, record what low-vol OWNS OR HAS ORDERED so mean-rev leaves it
+    alone. CRITICAL: market orders placed at the close haven't FILLED yet (they fill
+    at the next open), so reading positions alone misses fresh buys — that would let
+    mean-rev trade a name low-vol just bought (the June-9 collision class). We record
+    every TARGET name, using its live filled qty if present, else the already-held qty,
+    else a small non-zero placeholder so the name is claimed. Next run reconciles to
+    the true filled qty once positions settle."""
     if not live:
         return
     try:
         positions = _alpaca(env, "GET", "/v2/positions") or []
         pos_by_sym = {p["symbol"]: float(p["qty"]) for p in positions}
-        holdings = {s: pos_by_sym.get(s, 0.0) for s in targets.index if pos_by_sym.get(s, 0.0) > 0}
+        holdings = {}
+        for s in targets.index:
+            qty = pos_by_sym.get(s) or held_qty.get(s) or 1e-6  # claim even if unfilled
+            holdings[s] = qty
         ownership.write_section("lowvol", holdings)
-        log(f"Ledger updated: low-vol owns {sorted(holdings)}")
+        log(f"Ledger updated: low-vol claims {len(holdings)} names {sorted(holdings)}")
     except Exception as e:
         log(f"[ledger] update failed: {str(e)[:80]}")
 
