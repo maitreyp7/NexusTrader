@@ -1,130 +1,119 @@
 # NexusTrader — Architecture (Single Source of Truth)
 
-**Last verified:** 2026-06-17 by auditing the live VPS + local repo (not from memory).
+**Last verified:** 2026-08-27 by auditing the live VPS + local repo (not from memory).
 **Read this first.** It is the authoritative map of what is wired, live, and dead.
 
 ---
 
 ## THE ONE-LINE SUMMARY
-There is **one trading bot** (ORB, in `trading-bot/`), a **dashboard**, and **one support
-service** (portfolio-manager) that the bot depends on. Everything else is idle or retired.
+There are **three trading bots** (a regime-gated ETF/crypto "brain", a single-name
+mean-reversion bot, and a low-volatility bot), all in `quant/`, running on the VPS as
+cron jobs, plus a **dashboard** and a **safety/monitoring layer**. The old ORB day-bot,
+swing bot, and the market-lens/options/earnings pipeline are **RETIRED** (see bottom).
 
 ---
 
 ## LIVE SYSTEM (what actually runs)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  VPS: root@146.190.77.207  /opt/nexustrader/                     │
-│                                                                   │
-│  orb-bot/         ← trading-bot/ in repo. THE bot. systemd:       │
-│                     trading-bot.service (24/7). Trades ORB +      │
-│                     midday + power-hour breakouts, Mon–Fri.       │
-│                                                                   │
-│  dashboard/       ← nexus-dashboard.service. Next.js. Reads       │
-│                     signals.json + portfolio.json + session logs. │
-│                                                                   │
-│  portfolio-manager/ ← cron 4:30pm + Fri weekly review. Writes     │
-│                     kill_switch.json + risk_budget.json which     │
-│                     THE ORB BOT READS. Keep it running.           │
-│                                                                   │
-│  signals/         ← shared JSON bus (see below)                   │
-│  nexustrader.env  ← all secrets (gitignored, never committed)     │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  VPS: root@146.190.77.207   /opt/nexustrader/quant-bot/               │
+│  All bots paper-trade on Alpaca. Cron-driven (no systemd for the bots).│
+│                                                                        │
+│  live_runner.py     ← BRAIN: ETF trend + crypto trend + turn-of-month, │
+│                        VIX/VIX3M regime-gated to cash. ~51% of equity. │
+│  meanrev_runner.py  ← MEAN-REV: RSI(2) oversold-bounce on ~150 large   │
+│                        caps. Quality params. ~34%.                     │
+│  lowvol_runner.py   ← LOW-VOL: 15 lowest-vol large caps, monthly. 15%. │
+│                                                                        │
+│  dynamic_budget.py  ← the 3-way split (compute_split3).                │
+│  equity_protector.py← account watchdog (−15% peak → liquidate+halt),   │
+│                        with data-sanity gate. Runs every 20 min.       │
+│  sleeve_breaker.py  ← per-sleeve drawdown breaker → sleeve_overrides.  │
+│  health_check.py / sleeve_pnl.py / slippage_tracker.py / turnover_audit│
+│                        ← monitoring (no orders).                       │
+│                                                                        │
+│  dashboard/         ← nexus-dashboard.service (Next.js, localhost:3000)│
+│  nexustrader.env    ← all secrets (gitignored, never committed)        │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Services (systemctl)
 | Service | State | Notes |
 |---------|-------|-------|
-| `trading-bot.service` | 🟢 running 24/7 | the ORB bot |
-| `nexus-dashboard.service` | 🟢 running | the web dashboard, port 3000 |
+| `nexus-dashboard.service` | 🟢 active | the web dashboard, localhost:3000 (SSH-tunnel to view) |
+| `trading-bot.service` | 🔴 failed/dead | the RETIRED ORB bot — not used; safe to remove |
 
-### Active cron (as of 2026-06-17)
-| Time (ET) | Job | Why it's kept |
-|-----------|-----|---------------|
-| 4:30pm M–F | portfolio-manager/main.py | writes kill_switch + risk_budget (ORB reads these) |
-| Fri 5:30pm | portfolio-manager/weekly_review.py | weekly summary |
+The trading bots are **cron jobs**, not systemd services.
+
+### Active cron (UTC, verified 2026-08-27)
+| Time | Job | Role |
+|------|-----|------|
+| 21:30 M–F | `live_runner.py --live` | brain (ETF + crypto trend) |
+| 21:35 M–F | `meanrev_runner.py --live` | mean-reversion |
+| 21:40 M–F | `lowvol_runner.py --live` | low-volatility |
+| 21:45 M–F | `health_check.py` | daily Discord health report |
+| 21:47 M–F | `sleeve_pnl.py` | per-sleeve P&L log + drift check |
+| 21:50 M–F | `sleeve_breaker.py` | per-sleeve drawdown breaker |
+| 21:55 Fri | `slippage_tracker.py 30` | weekly execution-cost report |
+| */20, 13–20 M–F | `equity_protector.py` | account watchdog during market hours |
 
 ---
 
-## THE SIGNALS BUS (`signals/`)
+## STATE FILES (in `quant-bot/`, not the old `signals/` bus)
 
-Live files only (orphaned swing/ml files archived 2026-06-17 to `.backups/archive-*`):
+The quant system does NOT use the old `signals/` JSON bus. Its state is local JSON:
 
 | File | Written by | Read by | Critical? |
 |------|-----------|---------|-----------|
-| `kill_switch.json` | portfolio-manager | **ORB bot** | YES — halts trading |
-| `risk_budget.json` | portfolio-manager | **ORB bot** | YES — caps exposure |
-| `portfolio.json` | portfolio-manager | dashboard | display |
-| `signals.json` | market-lens (PAUSED) | ORB (optional bias), dashboard | no — fail-safe |
-| `orb_brain_export.json` | ORB bot | (self/reference) | no |
-| `blessed_watchlist.json` | market-lens (PAUSED) | ORB (injection DISABLED) | no — not used |
-| `options_signals.json` | options-flow (PAUSED) | nothing live | no |
-| `earnings_predictions.json` | earnings-predictor (PAUSED) | nothing live | no |
-
-**Rule:** the only signal files that affect live trading are `kill_switch.json` and
-`risk_budget.json`. Everything else is optional/fail-safe.
+| `KILL_SWITCH.json` | equity_protector | all 3 runners | YES — halts trading (manual clear) |
+| `sleeve_overrides.json` | sleeve_breaker | all 3 runners | YES — per-sleeve budget multipliers |
+| `ownership.json` | mean-rev + low-vol | both stock bots | YES — collision guard (who owns which name) |
+| `protector_state.json` | equity_protector | equity_protector | high-water mark + last-good equity |
+| `sleeve_breaker_state.json` | sleeve_breaker | sleeve_breaker | per-sleeve high-water marks |
+| `live_logs/sleeve_pnl.jsonl` | sleeve_pnl | sleeve_pnl (drift) | per-sleeve daily history |
 
 ---
 
-## IDLE / IDLE MODULES (code kept, crons PAUSED)
-These were built to feed the retired swing bot. Crons disabled 2026-06-17. Code stays for
-possible repurposing. They make NO API calls while paused.
+## KEY MODULES (`quant/`)
+- `engine.py` — honest daily-bar backtest engine (no look-ahead, real costs). The gatekeeper's heart.
+- `allocator.py` — combines sleeves, applies caps + the VIX regime gate.
+- `strategies/` — `trend.py`, `crypto_trend.py`, `flow.py` (turn-of-month), `name_meanrev.py`, `lowvol.py`.
+- `data.py` — Yahoo daily-bar fetcher (cached). Backtest data source (execution is Alpaca).
+- `gatekeeper.py` — deflated Sharpe, walk-forward, split-half robustness stats.
+- `research/` — the research OS (validate/similarity/stability) + `GRAVEYARD.md`. **Local only, never deployed.**
 
-| Module | Was for | Status |
-|--------|---------|--------|
-| `market-lens/` | research → swing | cron paused 2026-06-12 (stops Anthropic/FRED/Quiver spend) |
-| `options-flow/` | swing confirmation | cron paused 2026-06-17 |
-| `earnings-predictor/` | swing avoid-list | cron paused 2026-06-17 |
-| `wealth-intelligence/` | reporting | cron paused 2026-06-17 |
-
-## RETIRED
-| Thing | Where it went |
-|-------|--------------|
-| `swing-bot/` | archived to `~/PersonalProjects/disabled-swing-bot/` (local) + `.backups/archive-*` (VPS). Fully decoupled from ORB. |
+### Canonical config that matters
+- **3-way split:** `dynamic_budget.compute_split3()` → brain ~51 / mean-rev ~34 / low-vol 15.
+- **Mean-rev params:** `meanrev_runner.PARAMS` (entry_rsi 5, exit_rsi 70, hold 20, 8 names) — single source of truth, imported by dynamic_budget.
+- **Crypto cap:** 15% of equity, in `live_runner.py`.
+- **Breaker thresholds:** −20% → ×0.5 budget, −35% → ×0.0 (`sleeve_breaker.py`).
 
 ---
 
-## THE ORB BOT INTERNALS (trading-bot/src/)
-- `config.ts` — **single source of truth** for settings. 12-symbol watchlist, gates, correlation groups.
-- `index.ts` — main loop, session scheduling, entry execution, the 3 windows.
-- `agents/preMarketFilter.ts` — GO/NO-GO decision (VIX, economic calendar, kill switch).
-- `agents/brain.ts` — per-symbol adaptive sizing/confidence (graduates from synthetic at ~10 real trades).
-- `agents/auditAgent.ts` — ~130 self-checks before trading.
-- `core/logger.ts` — logging + Discord (retry-on-429).
-- `strategy/openingRange.ts` — the breakout logic + volume/range gates.
-- `dashboard/` — Next.js app (its own README/AGENTS.md note: modified Next.js, read node_modules docs before editing).
-
-### Key tunable gates (config.ts)
-- `volumeConfirmationMultiplier: 0.7` — breakout volume vs avg (lowered from 1.0)
-- `maxRangeSize: 0.05` — skip days with range > 5% (raised from 3%)
-- `minConfidenceToTrade: 0.55`
-- `maxPositionsPerCorrelationGroup: 2` — caps the crypto cluster
+## DEPLOY DISCIPLINE
+1. Edit locally → syntax-check (`python3 -c "import ast; ast.parse(...)"`) → `scp` to
+   `/opt/nexustrader/quant-bot/` → dry-run on VPS → then let cron run it live.
+2. The VPS runs via `/opt/nexustrader/venv/bin/python3` (NOT bare `python3` — no pandas there).
+3. The research OS (`quant/research/`) is **local only** — do not deploy it (needs scipy;
+   production doesn't import it).
+4. Commit after every change. Deploy = scp of loose files (VPS is not a git checkout).
 
 ---
 
-## DEPLOY DISCIPLINE (how to avoid the past tug-of-war)
-1. **One owner of `orb-bot/src/{config.ts,index.ts}` at a time.**
-2. Edit locally → `npx tsc --noEmit` → backup VPS file → scp → restart → verify watchlist loads.
-3. Local repo and VPS were confirmed IN SYNC on 2026-06-17. Keep them that way: commit after every change.
-4. Backups live in `/opt/nexustrader/.backups/`.
-
----
-
-## KNOWN OPEN ITEMS
-- **ORB barely trades** (~1 trade/14 sessions) — the real priority. See `ROADMAP.md`.
-  Instrumentation added 2026-06-17: a per-session **rejection tally** (volume / range /
-  no_breakout / confidence / brain_skip / correlation) now appears in the daily Discord
-  summary and the session JSON. Use the biggest bucket to decide which gate to tune next.
-
-## RESOLVED
-- ~~config.ts ↔ orbAnalyst.ts drift~~ — confirmed FIXED (tsc exit 0 as of 2026-06-17).
-  `enabledSymbols` lives in config FADE section; `shortConfidencePremium` no longer referenced.
+## RETIRED (do not resurrect without re-validating)
+| Thing | Why | Where it went |
+|-------|-----|---------------|
+| ORB intraday bot (`trading-bot/`) | honest backtest PF 0.83 | code in repo; `trading-bot.service` dead on VPS |
+| swing bot | 14–28% win rate, unvalidated news pipeline | archived; GRAVEYARD.md |
+| market-lens / options-flow / earnings-predictor | fed the retired swing bot | crons paused; code kept for reference |
+| Also rejected: leverage, day-trading, shorting, defensive rotation, sector rotation, residual momentum, PEAD-as-4th-sleeve, spike prediction | see `quant/research/GRAVEYARD.md` (check before researching anything) |
 
 ---
 
 ## WHERE TO LOOK
-- **What to build next / strategy plan:** `ROADMAP.md`
-- **Strategy ideas backlog:** `STRATEGIES_BACKLOG.md`
-- **Crypto vs ORB-only research:** `RESEARCH_FINDINGS.md`
+- **What runs + how to use it:** `README.md`
+- **Roadmap / build order:** `BUILD_PLAN.md`
+- **All validation evidence + rejected ideas:** `quant/research/` + `GRAVEYARD.md`
+- **Full system audit (sleeve-by-sleeve):** `SYSTEM_AUDIT_2026-08-26.md`
 - **Security posture:** `SECURITY.md`
