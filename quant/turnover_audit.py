@@ -1,6 +1,11 @@
 """
 turnover_audit.py — How often is each sleeve ACTUALLY trading vs its backtest rate?
 
+CAVEAT (learned 2026-08-27): Alpaca counts FILL FRAGMENTS, not orders. One notional
+order often fills in several partial pieces, so "fills/day" overcounts real trading
+decisions ~2-4x. To judge churn, prefer ORDERS-per-run (grep "Planned orders" in the
+runner log). Mean-rev at ~4 orders/run is healthy even if this shows ~15 "fills/day".
+
 Over-trading is the #1 silent killer (it retired the old ORB bot). This pulls the
 real fill history from Alpaca and reports fills/day per sleeve, so churn shows up
 loud. Found 2026-07-19: mean-rev was doing ~15 fills/day (8-10x its intended ~1-2)
