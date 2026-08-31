@@ -96,19 +96,23 @@ def main():
     filled_today = [o for o in orders if o.get("status") == "filled"]
 
     # --- build alarms ---
+    # alarms = REAL problems (turn the report RED). notes = informational (stay green).
     alarms = []
+    notes = []
     if failed:
         names = ", ".join(f"{o['symbol']}:{o['status']}" for o in failed[:8])
         alarms.append(f"⛔ {len(failed)} FAILED order(s) today: {names}")
-    # split drift (note: bots don't force-spend the full budget due to vol-targeting,
-    # so we compare each bot's share against its budget CEILING, alerting only if a bot
-    # EXCEEDS its budget or wildly under-deploys while it clearly should be holding).
-    if m_share > MEANREV_BUDGET + DRIFT_TOL:
+    # split drift. Positions appreciate between rebalances, so a sleeve modestly over its
+    # cap is normal (self-corrects at rebalance) — only alarm on a LARGE overage that
+    # implies real over-allocation. Low-vol rebalances only monthly, so give it more room.
+    if m_share > MEANREV_BUDGET + 2 * DRIFT_TOL:
         alarms.append(f"⚠ mean-rev OVER budget: {m_share*100:.0f}% vs {MEANREV_BUDGET*100:.0f}% cap")
-    if b_share > BRAIN_BUDGET + DRIFT_TOL:
+    if b_share > BRAIN_BUDGET + 2 * DRIFT_TOL:
         alarms.append(f"⚠ brain OVER budget: {b_share*100:.0f}% vs {BRAIN_BUDGET*100:.0f}% cap")
-    if l_share > LOWVOL_BUDGET + DRIFT_TOL:
+    if l_share > LOWVOL_BUDGET + 2 * DRIFT_TOL:
         alarms.append(f"⚠ low-vol OVER budget: {l_share*100:.0f}% vs {LOWVOL_BUDGET*100:.0f}% cap")
+    elif l_share > LOWVOL_BUDGET + DRIFT_TOL:
+        notes.append(f"low-vol {l_share*100:.0f}% slightly over {LOWVOL_BUDGET*100:.0f}% cap (rebalances monthly)")
     # ledger reconciliation: a low-vol ledger name should become a real position once
     # its buy fills. Fresh claims use a tiny placeholder qty (~1e-6) until fills settle
     # at the next open — those are EXPECTED to be "not held yet", so don't alarm on them.
@@ -122,8 +126,14 @@ def main():
     if osum > 0.01 * equity:
         names = ", ".join(p["symbol"] for p in other[:8])
         alarms.append(f"⚠ UNOWNED positions ({osum/equity*100:.0f}% of acct): {names}")
-    if day_pct < DAY_LOSS_ALERT:
-        alarms.append(f"📉 account down {day_pct*100:.1f}% today (informational)")
+    # Day-loss note. This is INFORMATIONAL — it never turns the report red (the equity
+    # protector, with its own sanity gate, is what actually acts on real drawdowns).
+    # Sanity-check the day move: if equity reconciles with cash+positions, a big "loss"
+    # vs last_equity is a marking glitch (last_equity was bad), not a real loss — skip it.
+    reconciled = cash + bsum + msum + lsum + osum
+    equity_is_sane = reconciled <= 0 or abs(equity - reconciled) / reconciled < 0.10
+    if day_pct < DAY_LOSS_ALERT and equity_is_sane and last_equity > 0:
+        notes.append(f"📉 account {day_pct*100:.1f}% today")
 
     # --- regime status (best-effort; never block the report on it) ---
     regime = "?"
@@ -149,6 +159,8 @@ def main():
     )
     if alarms:
         msg += "\n" + "\n".join(alarms)
+    if notes:
+        msg += "\nℹ️ " + "  ·  ".join(notes)   # informational — report stays green
 
     log(msg.replace("\n", " | "))
     discord(env, msg)
