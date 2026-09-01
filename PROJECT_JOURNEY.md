@@ -59,20 +59,145 @@ which would repeat the ORB mirage. So I **backtest on Yahoo** (SPY back to 1993,
 > **Data source ≠ execution source.** You validate on long history that includes crashes;
 > you execute on whatever broker you use.
 
-### The strategies I tested, and what happened
+### The strategies I tested (summary — full explanations in the Encyclopedia below)
 
-| Strategy | Result | Lesson |
+| Strategy | Result | One-line why |
 |---|---|---|
-| **ETF trend-following** (12-mo momentum + 200-day SMA, monthly) | **PASSED**, Sharpe ~0.94 | The most-documented edge in finance; also gives crisis-alpha. Kept. |
-| **Crypto Donchian breakout** (the "hyped" version) | **FAILED** | Popular ≠ profitable. Killed it. |
-| **Crypto trend** (hold above 50-day MA) | **PASSED**, uncorrelated to stocks | Same trend logic, different market. Kept. |
-| **Turn-of-month** calendar tilt | **PASSED** (weak alone) | Low edge but near-zero cost + acts as a volatility dampener. Kept as a filler. |
-| **FOMC drift / defensive rotation** | rejected | Didn't clear the bar. |
+| **ETF trend-following** | ✅ KEPT, Sharpe ~0.94 | Ride established uptrends; sit out downtrends. The most-documented edge in finance. |
+| **Crypto Donchian breakout** | ❌ FAILED | The "hyped" breakout version didn't survive honest costs. Popular ≠ profitable. |
+| **Crypto trend** (50-day MA) | ✅ KEPT | Same trend logic, uncorrelated market. |
+| **Turn-of-month** | ✅ KEPT (weak alone) | Tiny calendar edge; near-zero cost; dampens volatility. |
+| **FOMC drift** | ❌ rejected | Didn't clear the bar. |
 
 ### The key insight — the allocator
 Combining the sleeves into one portfolio produced a **higher Sharpe than any single
 sleeve** (~0.82 combined). That's diversification — the one "free lunch" in investing —
 made concrete.
+
+---
+
+## STRATEGY ENCYCLOPEDIA — what each one *is*, how it works, and what I found
+
+This is the section to study before an interview. For each strategy: the plain-English
+idea, the exact mechanics, why it *should* work in theory, and what my data actually said.
+
+### ✅ KEPT strategies (these are in the live system)
+
+**1. ETF trend-following (time-series momentum)**
+- **What it is:** own an asset while it's trending up; go to cash while it's trending down.
+- **Mechanics:** for each ETF, I check two conditions — (a) its trailing 12-month return is
+  positive, and (b) its price is above its 200-day moving average. If both are true, hold it
+  (sized by volatility); otherwise hold cash. Rebalanced monthly.
+- **Why it works:** markets trend because information diffuses slowly and investors herd.
+  Trend-following is the most-researched anomaly in finance and famously provides
+  "crisis alpha" — it exits falling markets, so it's *up* or flat in crashes like 2008.
+- **My result:** Sharpe ~0.94, drawdown ~-18%. Passed cleanly. It's the backbone of the brain.
+
+**2. Crypto trend-following**
+- **What it is:** the same trend idea applied to crypto (BTC, ETH, SOL, etc.).
+- **Mechanics:** hold a coin only while its price is above its 50-day moving average;
+  vol-targeted sizing; cash (stablecoin) otherwise. Long-only (Alpaca crypto is spot).
+- **Why it works + why I added it:** crypto is a younger, less-efficient market, so trends
+  are stronger. Crucially, it's **uncorrelated (~0.03–0.34)** to the stock sleeves — so even
+  though it's the same *logic*, it's a different *return stream*, which is what diversifies.
+- **My result:** Sharpe ~0.68 but +18%/yr; high standalone drawdown (~-74%), which is why
+  it's capped at 15% of the account.
+
+**3. Turn-of-month (a calendar effect)**
+- **What it is:** stocks have historically drifted up around the turn of each month.
+- **Mechanics:** a small long tilt on SPY in the few days around month-end.
+- **Why it works:** structural fund flows — 401(k) contributions, pension rebalancing, and
+  fund inflows cluster at month-end, creating mechanical buying pressure.
+- **My result:** weak on its own (Sharpe ~0.43) but nearly free to run and it *dampens
+  volatility*, so it earns a small slot as a filler, not a driver.
+
+**4. Low-volatility tilt** *(covered in detail in its own Phase section below)* — hold the
+calmest stocks; they earn more per unit of risk because investors overpay for exciting ones.
+
+### ❌ REJECTED strategies (and the specific reason each failed — this is the good stuff)
+
+**5. Crypto Donchian breakout**
+- **What it is:** a classic "breakout" system — buy when price makes a new N-day *high*
+  (breaks above the top of its recent range), sell when it makes a new N-day low. The
+  channel of highs/lows is called a *Donchian channel*.
+- **Why people love it:** it's the famous "Turtle Traders" strategy; it *looks* great in
+  trending markets.
+- **Why it failed for me:** breakouts generate lots of *false* signals in choppy markets —
+  you buy the high, it immediately reverses, you eat the loss plus costs. Against honest
+  transaction costs it didn't beat the simpler moving-average trend rule. **Lesson: the
+  famous, exciting version of a strategy is often worse than the boring version.**
+
+**6. Shorting the market / inverse ETFs in downtrends**
+- **What it is:** instead of just going to cash in a downtrend, actively *profit* from it by
+  shorting (or buying an inverse ETF).
+- **Why it should work:** if trend-following up-moves make money, symmetric down-moves should
+  too.
+- **Why it failed:** it **lost -14% annualized in down markets.** Downtrends are punctuated
+  by violent "V-shaped" bounces (bear-market rallies) that stop out shorts. Adding it
+  collapsed the system's Sharpe from 0.72 to 0.30. **Going to cash beats shorting** — you
+  keep the safety without paying for the bounces.
+
+**7. Defensive rotation (bonds/gold in downturns)**
+- **What it is:** when equities downtrend, rotate into "safe-haven" assets (TLT bonds, GLD
+  gold) to profit from the flight-to-safety.
+- **Why it should work:** money flees stocks *into* bonds/gold in a panic, so those go up.
+- **Why it failed *for me specifically*:** it profits +4% standalone — but my brain **already
+  holds** bonds, gold, commodities and a dollar ETF via the trend sleeve, plus it goes to
+  cash via the regime gate. So adding a dedicated defensive sleeve was **redundant** — it
+  *lowered* the combined Sharpe (0.93 → 0.91) for a trivial drawdown gain. **Lesson: a
+  strategy that's good standalone can still hurt if it overlaps what you already own.**
+
+**8. Sector rotation**
+- **What it is:** own the 2–3 strongest of the 11 stock-market sectors (tech, energy,
+  financials, etc.), rotate monthly into whatever's leading.
+- **Why it should work:** leadership persists — hot sectors stay hot for a while.
+- **Why it failed:** decent standalone (Sharpe 0.56) but **0.49–0.55 correlated** to my
+  existing sleeves. It's just **trend-following in a different wrapper** — same underlying
+  bet, so zero diversification benefit. **Lesson: correlation, not standalone return, decides
+  whether something earns a slot.**
+
+**9. Residual momentum (beta-stripped cross-sectional momentum)**
+- **What it is:** own the top-decile momentum stocks, but first mathematically *remove* their
+  market exposure (beta), so you're betting on stock-specific strength, not the market.
+- **Why it should work:** it's a sophisticated, academically-respected factor.
+- **Why it failed:** great return (Sharpe 0.75, +14%/yr) **but a -64% max drawdown** —
+  momentum strategies suffer periodic "momentum crashes" (violent reversals) — *and* it was
+  0.44–0.46 correlated to what I had. Too risky and too redundant. **Lesson: a high Sharpe
+  can hide a catastrophic tail risk; always look at the drawdown.**
+
+**10. Spike prediction / momentum-ignition**
+- **What it is:** try to *predict* which stock will pop in the next few days from a surge in
+  volume + price ("something's happening here").
+- **Why people want it:** if you could predict pops, it'd be enormously profitable.
+- **Why it failed:** I measured it — the "warning sign" preceded an actual pop only **1.7%**
+  of the time. The other 98.3% of identical setups did nothing. This is the **survivorship
+  trap**: you see the winners in hindsight and assume the signal predicted them, but the same
+  signal fires constantly without a pop. Volume-surge follow-through barely beat a coin flip
+  (48% win, negative median). **Lesson: "it worked on these examples" is not evidence — you
+  have to count *all* the times the signal fired, including the failures.**
+
+**11. 52-week-high breakout**
+- **What it is:** buy stocks making new 52-week highs, expecting continuation.
+- **Why it should work:** new highs signal strength and attract attention.
+- **Why it failed:** +0.96% over 20 days at a 54% win rate — barely better than random, and
+  not enough to survive real costs on volatile names.
+
+**12. PEAD (Post-Earnings Announcement Drift)** *(the important one — a strategy that
+WORKED and I* still *rejected)*
+- **What it is:** after a company beats earnings and the market reacts positively, the stock
+  tends to keep *drifting* up for weeks (investors under-react to the news).
+- **Why it works:** it's one of the oldest documented anomalies (since 1968) — behavioral
+  under-reaction plus institutions scaling in slowly.
+- **My result:** validated as a **real edge** (Sharpe 0.70, positive across all eras, no
+  decay). The graveyard even notes the free-data problem that had blocked it got solved.
+- **Why I** *still* **benched it:** it was **0.60 correlated to my low-volatility sleeve**
+  (both end up holding quality large-caps), so adding it made the blended system *worse*, not
+  better. I kept it documented as a *backup* to swap in if low-vol ever decays. **This is my
+  best story: I found something profitable and had the discipline NOT to deploy it, because
+  additivity matters more than standalone profit.**
+
+**13. Leverage** *(covered in the graveyard section below)* — raises return only by raising
+risk equally; the Sharpe never improves. A risk dial, not an edge.
 
 ---
 
@@ -124,16 +249,33 @@ by the same honest yardstick:
 > **This is my strongest quant-research talking point.** It shows I understand overfitting,
 > multiple-testing bias, out-of-sample decay, and the discipline of disproving a thesis.
 
-### What the research proved I *shouldn't* do (all in the graveyard)
+### Leverage — the most tempting idea, explained in full (I tested it twice, rejected it twice)
+- **What it is:** borrow money (or use 2x/3x leveraged ETFs like SSO/SPXL) to put more than
+  100% of your capital into the strategy, multiplying its returns.
+- **Why it's tempting:** if my system makes ~7%/yr, 2x leverage "should" make ~14%.
+- **Why it fails — the key quant insight:** leverage multiplies **return and risk equally**,
+  so the **Sharpe ratio (return per unit of risk) doesn't change** — you just move along the
+  same risk/return line. And there are two extra taxes: (1) **financing cost** — borrowing at
+  ~IRX+2.5% (~7%) eats most of a ~7%-return strategy; my test showed CAGR stayed *flat* at
+  every leverage level while max drawdown exploded from -11% to -67% at 2x. (2) **volatility
+  decay** — leveraged ETFs reset daily, so in choppy/sideways markets they bleed value even
+  if the index ends flat (a flat-but-choppy market can cost a 2x ETF ~40%).
+- **I even tested the "smart" version:** a 2x S&P ETF gated by the 200-day trend (only levered
+  in clean uptrends). CAGR rose (+8%→+14%) but **Sharpe stayed flat (0.72→0.68)** and the
+  drawdown climbed right back to -40/-52% — the trend filter's whole benefit was erased.
+- **Conclusion (a great line):** *"Leverage is a risk dial, not an edge. It can't improve a
+  strategy's quality — it can only trade more drawdown for more return along a line you're
+  already on. The lever for more money is capital and time, not leverage."*
 
-| Idea | Why rejected |
-|---|---|
-| **Leverage** (margin, vol-targeted, or leveraged ETFs) | Raises return only by raising risk equally — Sharpe stays *flat*. A risk dial, not an edge. Even trend-gated 2x-SSO: CAGR +8%→+14% but Sharpe 0.72→0.68, drawdown back to -40/-52%. |
-| **Shorting / inverse ETFs in downturns** | Loses to V-shaped bounces; going to cash is strictly better. |
-| **Defensive rotation** (bonds/gold in downturns) | Redundant with what the brain already holds; dilutive. |
-| **Sector rotation, residual momentum** | Just trend-following in disguise (0.4–0.55 correlated) — no diversification. |
-| **PEAD (post-earnings drift)** | *Real* edge (validated Sharpe 0.70) — but 0.60-correlated to low-vol, so it doesn't add. Benched as a backup, not deployed. |
-| **Spike/breakout prediction** | The "warning sign" preceded a pop only 1.7% of the time — survivorship trap. |
+### The four cross-cutting lessons from everything I rejected
+1. **Correlation decides slots, not standalone return.** (Sector rotation, defensive rotation,
+   and PEAD were all profitable *alone* but rejected for overlapping what I already had.)
+2. **A high Sharpe can hide a catastrophic tail.** (Residual momentum: Sharpe 0.75 but -64%
+   drawdown.) Always look at the drawdown.
+3. **"It worked on these examples" is a trap.** (Spike prediction fired 98.3% false.) You must
+   count every time the signal fired, not just the winners — survivorship bias.
+4. **The famous/exciting version is often worse than the boring one.** (Donchian breakout lost
+   to a plain moving average; shorting lost to going to cash.)
 
 > **Interview gold:** "I found a genuinely profitable strategy (PEAD) and *still didn't
 > deploy it*, because it was too correlated to a sleeve I already had. Additivity matters
@@ -143,9 +285,14 @@ by the same honest yardstick:
 
 ## The THIRD sleeve — low-volatility (validated late June, deployed Aug 27)
 
-The **low-volatility anomaly:** the calmest stocks earn more *per unit of risk*, because
-investors overpay for exciting/lottery-like stocks. Rule: each month, hold the 15
-lowest-realized-volatility large caps, equal weight.
+The **low-volatility anomaly:** boring, low-volatility stocks have historically delivered
+*better risk-adjusted returns* than exciting, high-volatility ones — the opposite of what
+finance theory ("more risk = more reward") predicts. **Why it exists:** (1) investors
+overpay for lottery-like, high-volatility stocks hoping for a moonshot, leaving the calm
+ones underpriced; (2) many big investors can't use leverage, so they chase return by
+buying risky stocks instead, bidding them up. **Mechanics:** each month, rank ~150 large
+caps by their 126-day (6-month) realized volatility and hold the 15 *lowest*, equal-weight
+(these end up being utilities, staples, REITs — Coca-Cola, Duke Energy, Realty Income).
 
 - **Validated:** standalone Sharpe ~1.05, positive in 18/19 eras (a 50-year anomaly).
 - **Correlation to the brain: ~0.13** — a genuine diversifier.
