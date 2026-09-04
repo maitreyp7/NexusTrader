@@ -70,12 +70,40 @@ def classify(sym: str, lowvol_syms: set) -> str:
 
 
 def sleeve_values(env) -> dict:
+    """Each sleeve's ALLOCATED value = its held positions + its share of cash.
+
+    CRITICAL: a sleeve's value is NOT just its held positions. Mean-rev and the brain
+    legitimately sit in CASH when their signals say so (mean-rev holds nothing when no
+    stock is oversold; the brain goes to cash in a risk-off regime). Measuring only
+    position market value made the breaker read "holding cash" as a -100% drawdown and
+    cut the sleeve to zero — a self-reinforcing trap (cut budget -> can't buy -> stays
+    at $0 -> stays cut). We add each sleeve's share of account cash so a sleeve that
+    de-risks to cash shows its true, roughly-flat value, and the breaker only fires on
+    REAL losses (positions actually declining in value).
+    """
+    acct = _alpaca(env, "GET", "/v2/account")
+    equity = float(acct["equity"])
     positions = _alpaca(env, "GET", "/v2/positions") or []
     lowvol_syms = ownership.owned_symbols("lowvol")
     mv = defaultdict(float)
     for p in positions:
         mv[classify(p["symbol"], lowvol_syms)] += float(p["market_value"])
-    return {s: mv[s] for s in ("brain", "mrev", "lowvol")}
+
+    # Each sleeve's target share of equity (so its cash portion is credited to it).
+    try:
+        import dynamic_budget
+        b, m, l, _ = dynamic_budget.compute_split3()
+        shares = {"brain": b, "mrev": m, "lowvol": l}
+    except Exception:
+        shares = {"brain": 0.60, "mrev": 0.25, "lowvol": 0.15}
+    invested = sum(mv[s] for s in ("brain", "mrev", "lowvol"))
+    free_cash = max(equity - invested, 0.0)
+
+    out = {}
+    for s in ("brain", "mrev", "lowvol"):
+        # value = its live positions + its allocated slice of the un-deployed cash
+        out[s] = mv[s] + free_cash * shares.get(s, 0.0)
+    return out
 
 
 def main():
