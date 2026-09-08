@@ -67,15 +67,33 @@ def main():
     day_pct = (equity / last_equity - 1) if last_equity else 0.0
 
     positions = _alpaca(env, "GET", "/v2/positions") or []
+    # Fold in OPEN (unfilled) orders. The bots place market orders that fill at the NEXT
+    # open, but this health check runs minutes after — so a sleeve that just bought 7
+    # names shows "0 positions" until fills settle, which looks alarming but is normal.
+    # Treat a pending BUY as a position-in-progress so counts/shares reflect intent.
+    open_orders = _alpaca(env, "GET", "/v2/orders?status=open&limit=200") or []
+    held_syms = {p["symbol"] for p in positions}
+    pending = []
+    for o in open_orders:
+        if o.get("side") != "buy" or o.get("symbol") in held_syms:
+            continue
+        notion = o.get("notional")
+        if notion is None:
+            notion = float(o.get("qty") or 0) * float(o.get("limit_price") or 0)
+        pending.append({"symbol": o["symbol"], "market_value": float(notion or 0),
+                        "unrealized_pl": 0.0, "_pending": True})
+    positions_eff = positions + pending
+
     # Both mean-rev and low-vol hold STOCK_UNIVERSE names — split them by the
     # ownership ledger (falls back to all-stocks-as-mrev if the ledger is empty).
     lowvol_syms = ownership.owned_symbols("lowvol")
     # Match brain (incl. crypto) on canonical form; stocks match directly.
-    brain = [p for p in positions if canon(p["symbol"]) in BRAIN_SYMBOLS]
-    lvol  = [p for p in positions if p["symbol"] in lowvol_syms]
-    mrev  = [p for p in positions if p["symbol"] in OUR_NAMES and p["symbol"] not in lowvol_syms]
-    other = [p for p in positions if canon(p["symbol"]) not in BRAIN_SYMBOLS
+    brain = [p for p in positions_eff if canon(p["symbol"]) in BRAIN_SYMBOLS]
+    lvol  = [p for p in positions_eff if p["symbol"] in lowvol_syms]
+    mrev  = [p for p in positions_eff if p["symbol"] in OUR_NAMES and p["symbol"] not in lowvol_syms]
+    other = [p for p in positions_eff if canon(p["symbol"]) not in BRAIN_SYMBOLS
              and p["symbol"] not in OUR_NAMES]
+    n_pending = len(pending)
 
     bsum = sum(float(p["market_value"]) for p in brain)
     msum = sum(float(p["market_value"]) for p in mrev)
@@ -156,6 +174,7 @@ def main():
         f"🐢 Low-vol:  {l_share*100:.0f}% (cap {LOWVOL_BUDGET*100:.0f}%)  |  {len(lvol)} pos  |  uPL {l_upl:+,.0f}\n"
         f"   mrev: {mrev_names}\n"
         f"Regime: {regime}  |  orders today: {len(filled_today)} filled, {len(failed)} failed"
+        + (f", {n_pending} pending fill" if n_pending else "")
     )
     if alarms:
         msg += "\n" + "\n".join(alarms)
