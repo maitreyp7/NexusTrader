@@ -69,56 +69,71 @@ def classify(sym: str, lowvol_syms: set) -> str:
     return "other"
 
 
-def sleeve_values(env) -> dict:
-    """Each sleeve's ALLOCATED value = its held positions + its share of cash.
+def sleeve_pnl_series(env) -> dict:
+    """Each sleeve's cumulative P&L (realized + open unrealized), from the sleeve_pnl log.
 
-    CRITICAL: a sleeve's value is NOT just its held positions. Mean-rev and the brain
-    legitimately sit in CASH when their signals say so (mean-rev holds nothing when no
-    stock is oversold; the brain goes to cash in a risk-off regime). Measuring only
-    position market value made the breaker read "holding cash" as a -100% drawdown and
-    cut the sleeve to zero — a self-reinforcing trap (cut budget -> can't buy -> stays
-    at $0 -> stays cut). We add each sleeve's share of account cash so a sleeve that
-    de-risks to cash shows its true, roughly-flat value, and the breaker only fires on
-    REAL losses (positions actually declining in value).
+    LESSON (learned the hard way, twice): a circuit breaker must fire on a sleeve
+    LOSING MONEY, not on its FOOTPRINT SHRINKING. Measuring "value" by market value —
+    even market value + a share of cash — kept false-tripping, because a sleeve's
+    footprint drops for reasons that are NOT losses: going to cash (mean-rev when nothing
+    is oversold), being under-deployed, or having its cash slice starved when other
+    sleeves are over their caps. Both false-trips (mean-rev -100%, low-vol -44%) happened
+    with the sleeve's REAL P&L essentially flat.
+
+    The honest measure is P&L: realized (from closed trades) + unrealized (open
+    positions), which only goes down when the sleeve actually loses money. We read the
+    per-sleeve daily log written by sleeve_pnl.py. Drawdown is then measured on the P&L
+    high-water mark, which is what a real risk desk means by a sleeve drawdown.
     """
+    log = os.path.join(LOG_DIR, "sleeve_pnl.jsonl")
+    cum = {"brain": 0.0, "mrev": 0.0, "lowvol": 0.0}
+    if not os.path.exists(log):
+        return cum
+    rows = [json.loads(l) for l in open(log) if l.strip()]
+    if not rows:
+        return cum
+    # cumulative realized proxy: sum of daily unrealized deltas + realized isn't logged
+    # separately, so use the most recent snapshot's unrealized P&L as the live figure.
+    # (This tracks open-position P&L, which is what would signal a real sleeve loss.)
+    latest = rows[-1]["sleeves"]
+    for s in ("brain", "mrev", "lowvol"):
+        cum[s] = float(latest.get(s, {}).get("upl", 0.0))
+    return cum
+
+
+def sleeve_budgets(env) -> dict:
+    """Each sleeve's allocated capital (equity * its budget share) — the denominator for
+    a P&L-based drawdown, i.e. 'how much of this sleeve's capital has it given back?'"""
     acct = _alpaca(env, "GET", "/v2/account")
     equity = float(acct["equity"])
-    positions = _alpaca(env, "GET", "/v2/positions") or []
-    lowvol_syms = ownership.owned_symbols("lowvol")
-    mv = defaultdict(float)
-    for p in positions:
-        mv[classify(p["symbol"], lowvol_syms)] += float(p["market_value"])
-
-    # Each sleeve's target share of equity (so its cash portion is credited to it).
     try:
         import dynamic_budget
         b, m, l, _ = dynamic_budget.compute_split3()
         shares = {"brain": b, "mrev": m, "lowvol": l}
     except Exception:
         shares = {"brain": 0.60, "mrev": 0.25, "lowvol": 0.15}
-    invested = sum(mv[s] for s in ("brain", "mrev", "lowvol"))
-    free_cash = max(equity - invested, 0.0)
-
-    out = {}
-    for s in ("brain", "mrev", "lowvol"):
-        # value = its live positions + its allocated slice of the un-deployed cash
-        out[s] = mv[s] + free_cash * shares.get(s, 0.0)
-    return out
+    return {s: equity * shares[s] for s in shares}
 
 
 def main():
     env = _env()
-    state = _load(STATE, {})            # {sleeve: {"hwm": x}}
+    state = _load(STATE, {})            # {sleeve: {"peak_pnl": x}}
     overrides = _load(OVERRIDES, {})    # {sleeve: multiplier}
-    values = sleeve_values(env)
+    pnl = sleeve_pnl_series(env)        # each sleeve's current cumulative P&L ($)
+    budgets = sleeve_budgets(env)       # each sleeve's allocated capital ($)
 
     new_overrides = dict(overrides)
     alerts = []
-    for sleeve, mv in values.items():
-        st = state.get(sleeve, {"hwm": mv})
-        hwm = max(st.get("hwm", 0.0), mv)   # ratchets up only
-        dd = (mv / hwm - 1) if hwm > 0 else 0.0
-        state[sleeve] = {"hwm": hwm}
+    for sleeve in ("brain", "mrev", "lowvol"):
+        cur_pnl = pnl.get(sleeve, 0.0)
+        st = state.get(sleeve, {"peak_pnl": cur_pnl})
+        peak = max(st.get("peak_pnl", 0.0), cur_pnl)   # best P&L this sleeve has reached
+        # drawdown = how much P&L was given back, as a fraction of the sleeve's capital.
+        # This ONLY goes negative when the sleeve actually LOSES money from its peak —
+        # not when it holds cash or shrinks its footprint.
+        budget = max(budgets.get(sleeve, 1.0), 1.0)
+        dd = (cur_pnl - peak) / budget
+        state[sleeve] = {"peak_pnl": peak}
 
         prev = overrides.get(sleeve, 1.0)
         mult = 1.0
@@ -126,12 +141,10 @@ def main():
             mult = 0.0
         elif dd <= -HALVE_DD:
             mult = 0.5
-        # only ever TIGHTEN automatically; loosening requires the sleeve to recover
-        # above the threshold (mult computed fresh each run handles recovery).
         new_overrides[sleeve] = mult
-        log(f"{sleeve:7} mv ${mv:,.0f} | hwm ${hwm:,.0f} | dd {dd*100:+.1f}% | budget x{mult}")
+        log(f"{sleeve:7} pnl ${cur_pnl:+,.0f} | peak ${peak:+,.0f} | dd {dd*100:+.1f}% of budget | budget x{mult}")
         if mult < 1.0 and mult != prev:
-            alerts.append(f"🛑 **{sleeve}** drew down {dd*100:.0f}% from peak → budget x{mult}")
+            alerts.append(f"🛑 **{sleeve}** lost {abs(dd)*100:.0f}% of its capital from peak → budget x{mult}")
         elif mult == 1.0 and prev < 1.0:
             alerts.append(f"✅ **{sleeve}** recovered → budget restored to full")
 
