@@ -1,5 +1,30 @@
 # NexusTrader Build Plan — Prioritized, Step by Step
 
+> ## 🔬 IDEA PARKED — PAIRS TRADING / STAT-ARB (cointegration) — research later
+> **The first genuinely MARKET-NEUTRAL idea, worth a proper research experiment.**
+> Concept: two related stocks (e.g. KO/PEP) are *cointegrated* — their spread is
+> mean-reverting. When the spread stretches wide, short the expensive one + long the
+> cheap one, betting it snaps back. Profit comes from the RELATIONSHIP correcting, not
+> market direction — so it can make money in flat/falling markets (directly addresses
+> the "we lag SPY / want consistent profit" gap).
+> - **Why it's different from the shorting we REJECTED:** that was *directional* shorting
+>   (short the market when it drops) — rejected 2026-06-26 because V-shaped bounces kill it
+>   (-14%/yr, Sharpe 0.72→0.30); cash beats it. Pairs shorting is *hedged* (long one + short
+>   one), so a market-wide bounce hits both legs equally. The rejection reason doesn't apply.
+> - **Why it's promising:** market-neutral, uncorrelated to trend/mean-rev/low-vol, real
+>   institutional stat-arb, strong portfolio/interview material.
+> - **The catches (test for these):** (1) needs equity SHORTING — Alpaca allows it ($2k+
+>   margin), a new execution dimension the bot doesn't use today; (2) cointegration BREAKS —
+>   pairs can decouple permanently (merger, business shift) and then the spread never reverts
+>   → loss on both legs. This is the main blow-up mode; needs a stop/exit when the relationship
+>   breaks. (3) edge has DECAYED since the 1990s-2000s (more competed) — must clear honest costs.
+> - **Research steps when ready:** (1) scan the ~150-name universe for genuinely cointegrated
+>   pairs via a statistical test (Engle-Granger / ADF on the spread), NOT just "same sector";
+>   (2) backtest spread-reversion with real costs + short borrow + a break-detection exit;
+>   (3) run through the gatekeeper; (4) check correlation to existing sleeves. Deploy only if
+>   it clears AND adds (additivity, per the PEAD lesson). Parked 2026-09-23.
+
+
 > ## 📌 QUEUED — BUILD LOW-VOL AS 3RD BOT (target: ~2026-07-14, after 2 bots prove out)
 > **Low-volatility tilt is VALIDATED and ready to deploy as bot #3 — but NOT YET.**
 > Deploy it only AFTER the current 2 bots (brain + mean-rev) have ~2-3 clean weeks live
