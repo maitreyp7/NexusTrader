@@ -6,7 +6,7 @@ correct, confirm they didn't break anything, audit the files the prior pass did 
 verify one clean live paper session. Be skeptical — assume a fix may be incomplete or wrong.
 
 Local repo: /Users/maitreypatel/Documents/PersonalProjects/NexusTrader/trading-bot/
-VPS: root@146.190.77.207, /opt/nexustrader/orb-bot/ (systemd `trading-bot`). Alpaca PAPER.
+VPS: root@<VPS_IP>, /opt/nexustrader/orb-bot/ (systemd `trading-bot`). Alpaca PAPER.
 
 ## What was already fixed (verify each is correct & complete — do not assume)
 1. P&L attributed from session journal, not shared-account equity
@@ -111,17 +111,17 @@ assuming they follow the same "bullish = high score" convention as macro and tec
 
 ```bash
 # Latest session JSON
-ssh root@146.190.77.207 "cat /opt/nexustrader/orb-bot/logs/sessions/$(date +%Y-%m-%d).json 2>/dev/null || ls -lt /opt/nexustrader/orb-bot/logs/sessions/ | head -5"
+ssh root@<VPS_IP> "cat /opt/nexustrader/orb-bot/logs/sessions/$(date +%Y-%m-%d).json 2>/dev/null || ls -lt /opt/nexustrader/orb-bot/logs/sessions/ | head -5"
 
 # Brain export
-ssh root@146.190.77.207 "cat /opt/nexustrader/signals/orb_brain_export.json | python3 -m json.tool | head -60"
+ssh root@<VPS_IP> "cat /opt/nexustrader/signals/orb_brain_export.json | python3 -m json.tool | head -60"
 
 # Latest journal
-ssh root@146.190.77.207 "ls -lt /opt/nexustrader/orb-bot/logs/journal/ | head -5"
-ssh root@146.190.77.207 "cat /opt/nexustrader/orb-bot/logs/journal/[LATEST].md"
+ssh root@<VPS_IP> "ls -lt /opt/nexustrader/orb-bot/logs/journal/ | head -5"
+ssh root@<VPS_IP> "cat /opt/nexustrader/orb-bot/logs/journal/[LATEST].md"
 
 # Monitor/bug report
-ssh root@146.190.77.207 "cat /opt/nexustrader/orb-bot/logs/monitor/$(date +%Y-%m-%d).md 2>/dev/null || ls -lt /opt/nexustrader/orb-bot/logs/monitor/ | head -3"
+ssh root@<VPS_IP> "cat /opt/nexustrader/orb-bot/logs/monitor/$(date +%Y-%m-%d).md 2>/dev/null || ls -lt /opt/nexustrader/orb-bot/logs/monitor/ | head -3"
 ```
 
 Confirm:

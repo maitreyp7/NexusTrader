@@ -231,7 +231,7 @@ Through actual historical crashes (backtested):
 
 ## Infrastructure & deployment
 
-- **VPS:** DigitalOcean, `root@146.190.77.207`, code at `/opt/nexustrader/quant-bot/`.
+- **VPS:** DigitalOcean, `root@<VPS_IP>`, code at `/opt/nexustrader/quant-bot/`.
 - **Python:** the VPS runs everything via `/opt/nexustrader/venv/bin/python3` (has
   pandas/numpy; bare `python3` does not).
 - **Bots are cron jobs** (not systemd). Only the dashboard is a service.
@@ -274,7 +274,7 @@ breakdown, orders, and activity — pulling directly from Alpaca. It's bound to
 View it through an SSH tunnel:
 
 ```bash
-ssh -L 3000:127.0.0.1:3000 root@146.190.77.207   # leave this terminal open
+ssh -L 3000:127.0.0.1:3000 root@<VPS_IP>   # leave this terminal open
 # then open http://localhost:3000 in your browser
 ```
 

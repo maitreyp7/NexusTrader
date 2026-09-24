@@ -17,7 +17,7 @@ swing bot, and the market-lens/options/earnings pipeline are **RETIRED** (see bo
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  VPS: root@146.190.77.207   /opt/nexustrader/quant-bot/               │
+│  VPS: root@<VPS_IP>   /opt/nexustrader/quant-bot/               │
 │  All bots paper-trade on Alpaca. Cron-driven (no systemd for the bots).│
 │                                                                        │
 │  live_runner.py     ← BRAIN: ETF trend + crypto trend + turn-of-month, │

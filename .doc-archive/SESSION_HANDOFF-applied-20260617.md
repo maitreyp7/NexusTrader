@@ -15,7 +15,7 @@
 
 **For:** the (now single) Claude session working on NexusTrader.
 **Generated:** 2026-06-12 by the main session.
-**Action required:** Re-apply the changes in PART A below (they were reverted ~19:45 UTC 2026-06-12 — the bot is currently running the OLD 7-symbol watchlist). Everything is exact find/replace on the VPS at `root@146.190.77.207`. Back up each file before editing (pattern: `cp <file> /opt/nexustrader/.backups/$(date +%Y%m%d-%H%M%S)-<name>`). After all edits: typecheck + restart + verify (PART C).
+**Action required:** Re-apply the changes in PART A below (they were reverted ~19:45 UTC 2026-06-12 — the bot is currently running the OLD 7-symbol watchlist). Everything is exact find/replace on the VPS at `root@<VPS_IP>`. Back up each file before editing (pattern: `cp <file> /opt/nexustrader/.backups/$(date +%Y%m%d-%H%M%S)-<name>`). After all edits: typecheck + restart + verify (PART C).
 
 ---
 
@@ -156,12 +156,12 @@ NOTE: `expandWatchlistFromBlessedList()` stays defined (just no longer called) �
 
 ```bash
 # 1. typecheck (2 pre-existing harmless errors are OK: preMarketFilter.ts:69 + index.ts:~1695 log.error 2-arg)
-ssh root@146.190.77.207 'cd /opt/nexustrader/orb-bot && npx tsc --noEmit 2>&1 | grep "error TS"'
+ssh root@<VPS_IP> 'cd /opt/nexustrader/orb-bot && npx tsc --noEmit 2>&1 | grep "error TS"'
 # 2. audit should pass (~130 checks)
-ssh root@146.190.77.207 'cd /opt/nexustrader/orb-bot && npm run audit 2>&1 | grep -E "passed|FAILED"'
+ssh root@<VPS_IP> 'cd /opt/nexustrader/orb-bot && npm run audit 2>&1 | grep -E "passed|FAILED"'
 # 3. restart + confirm the RIGHT watchlist loads
-ssh root@146.190.77.207 'systemctl restart trading-bot && sleep 5 && systemctl is-active trading-bot'
-ssh root@146.190.77.207 'tail -40 /opt/nexustrader/orb-bot/logs/bot.log | sed "s/\x1b\[[0-9;]*m//g" | grep "Watchlist:" | tail -1'
+ssh root@<VPS_IP> 'systemctl restart trading-bot && sleep 5 && systemctl is-active trading-bot'
+ssh root@<VPS_IP> 'tail -40 /opt/nexustrader/orb-bot/logs/bot.log | sed "s/\x1b\[[0-9;]*m//g" | grep "Watchlist:" | tail -1'
 # EXPECT: Watchlist: COIN, ARKK, SMCI, MARA, RIOT, IWM, MSTR, TSLA, QQQ, AAPL, AMD, DKNG
 ```
 

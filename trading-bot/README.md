@@ -6,7 +6,7 @@ Autonomous multi-agent equity trading bot in Node.js/TypeScript. Paper trades lo
 
 ## Where the Bot Lives
 
-The bot runs on a **DigitalOcean VPS at `146.190.77.207`** as a systemd service. It starts automatically every day, trades during market hours, and restarts itself if it crashes. Your laptop does not need to be on.
+The bot runs on a **DigitalOcean VPS at `<VPS_IP>`** as a systemd service. It starts automatically every day, trades during market hours, and restarts itself if it crashes. Your laptop does not need to be on.
 
 ---
 
@@ -14,27 +14,27 @@ The bot runs on a **DigitalOcean VPS at `146.190.77.207`** as a systemd service.
 
 ### Check if it's running
 ```bash
-ssh root@146.190.77.207 'systemctl status trading-bot'
+ssh root@<VPS_IP> 'systemctl status trading-bot'
 ```
 
 ### Watch live logs
 ```bash
-ssh root@146.190.77.207 'tail -f /opt/nexustrader/orb-bot/logs/bot.log'
+ssh root@<VPS_IP> 'tail -f /opt/nexustrader/orb-bot/logs/bot.log'
 ```
 
 ### Restart it (after a code update)
 ```bash
-ssh root@146.190.77.207 'systemctl restart trading-bot'
+ssh root@<VPS_IP> 'systemctl restart trading-bot'
 ```
 
 ### Stop it
 ```bash
-ssh root@146.190.77.207 'systemctl stop trading-bot'
+ssh root@<VPS_IP> 'systemctl stop trading-bot'
 ```
 
 ### Start it
 ```bash
-ssh root@146.190.77.207 'systemctl start trading-bot'
+ssh root@<VPS_IP> 'systemctl start trading-bot'
 ```
 
 ---
